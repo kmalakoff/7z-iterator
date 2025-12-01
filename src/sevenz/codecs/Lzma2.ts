@@ -9,8 +9,12 @@
 // 0x01         = Uncompressed chunk, dictionary reset
 // 0x02         = Uncompressed chunk, no dictionary reset
 // 0x80-0xFF    = LZMA compressed chunk (bits encode reset flags and size)
+//
+// Note: lzma-purejs is patched via patch-package to support LZMA2 state preservation.
+// The patch adds setSolid(true/false) method to control whether state is preserved
+// across code() calls.
 
-// Import lzma-purejs - provides raw LZMA decoder
+// Import lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
 import lzmajs from 'lzma-purejs';
 import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
@@ -61,8 +65,26 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
   var offset = 0;
 
   // LZMA decoder instance - reused across chunks
-  var decoder = new LzmaDecoder();
+  // The decoder is patched via patch-package to support setSolid() for LZMA2 state preservation
+  // The decoder also has _nowPos64 which tracks cumulative position for rep0 validation
+  // and _prevByte which is used for literal decoder context selection
+  var decoder = new LzmaDecoder() as InstanceType<typeof LzmaDecoder> & {
+    setSolid: (solid: boolean) => void;
+    _nowPos64: number;
+    _prevByte: number;
+  };
   decoder.setDictionarySize(dictSize);
+
+  // Access internal _outWindow for dictionary management
+  // We need to preserve dictionary state across LZMA2 chunks
+  type OutWindowType = {
+    _buffer: Buffer;
+    _pos: number;
+    _streamPos: number;
+    _windowSize: number;
+    init: (solid: boolean) => void;
+  };
+  var outWindow = (decoder as unknown as { _outWindow: OutWindowType })._outWindow;
 
   // Track current LZMA properties (lc, lp, pb)
   var propsSet = false;
@@ -79,8 +101,13 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
       // Uncompressed chunk
       // 0x01 = dictionary reset + uncompressed
       // 0x02 = uncompressed (no reset)
-      // Note: Dictionary reset (0x01) is handled implicitly since we don't
-      // maintain dictionary state across uncompressed chunks in this implementation
+
+      // Handle dictionary reset for 0x01
+      if (control === 0x01) {
+        outWindow._pos = 0;
+        outWindow._streamPos = 0;
+        decoder._nowPos64 = 0;
+      }
 
       if (offset + 2 > input.length) {
         throw new Error('Truncated LZMA2 uncompressed chunk header');
@@ -94,18 +121,56 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
         throw new Error('Truncated LZMA2 uncompressed data');
       }
 
-      // Copy uncompressed data
-      output.push(input.slice(offset, offset + uncompSize));
+      // Get the uncompressed data
+      var uncompData = input.slice(offset, offset + uncompSize);
+
+      // Copy uncompressed data to output
+      output.push(uncompData);
+
+      // Also update the decoder's internal dictionary so subsequent LZMA chunks can reference it
+      // The decoder needs to track this data for LZ77 back-references
+      // We write directly to _buffer to avoid flush() which requires _stream to be set
+      // We must also update _streamPos to match _pos so that flush() doesn't try to write
+      for (var i = 0; i < uncompData.length; i++) {
+        outWindow._buffer[outWindow._pos++] = uncompData[i];
+        // Handle circular buffer wrap-around
+        if (outWindow._pos >= outWindow._windowSize) {
+          outWindow._pos = 0;
+        }
+      }
+      // Keep _streamPos in sync so flush() doesn't try to write these bytes
+      // (they're already in our output buffer)
+      outWindow._streamPos = outWindow._pos;
+
+      // Update decoder's cumulative position so subsequent LZMA chunks have correct rep0 validation
+      decoder._nowPos64 += uncompSize;
+
+      // Update prevByte for literal decoder context in subsequent LZMA chunks
+      decoder._prevByte = uncompData[uncompData.length - 1];
+
       offset += uncompSize;
     } else if (control >= 0x80) {
       // LZMA compressed chunk
       // Control byte format (bits 7-0):
       // Bit 7: always 1 for LZMA chunk
-      // Bit 6: reset state
-      // Bit 5: new properties (implies state reset)
+      // Bits 6-5: reset mode (00=nothing, 01=state, 10=state+props, 11=all)
       // Bits 4-0: high 5 bits of uncompressed size - 1
 
-      var newProps = (control & 0x20) !== 0;
+      // Control byte ranges (based on bits 6-5):
+      // 0x80-0x9F (00): no reset - continue existing state (solid mode)
+      // 0xA0-0xBF (01): reset state only
+      // 0xC0-0xDF (10): reset state + new properties
+      // 0xE0-0xFF (11): reset dictionary + state + new properties
+      var resetState = control >= 0xa0;
+      var newProps = control >= 0xc0;
+      var dictReset = control >= 0xe0;
+      var useSolidMode = !resetState;
+
+      // Handle dictionary reset for control bytes 0xE0-0xFF
+      if (dictReset) {
+        outWindow._pos = 0;
+        outWindow._streamPos = 0;
+      }
 
       if (offset + 4 > input.length) {
         throw new Error('Truncated LZMA2 LZMA chunk header');
@@ -152,8 +217,8 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
       var inStream = createInputStream(input, offset, compSize);
       var outStream = createOutputStream();
 
-      // Note: decoder.code() internally calls init() after setting streams
-      // For LZMA2, the decoder state is managed per-chunk through props resets
+      // Set solid mode based on control byte - this preserves state across code() calls
+      decoder.setSolid(useSolidMode);
 
       // Decode the chunk
       var success = decoder.code(inStream, outStream, uncompSize2);
@@ -162,6 +227,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
       }
 
       output.push(outStream.toBuffer());
+
       offset += compSize;
     } else {
       throw new Error(`Invalid LZMA2 control byte: 0x${control.toString(16)}`);
