@@ -135,9 +135,8 @@ export default class SevenZipIterator extends BaseIterator {
       this.lock = null; // Clear before release to prevent re-entrancy
       lock.err = err;
       lock.release();
-    } else {
-      BaseIterator.prototype.end.call(this, err); // call in lock release so end is properly handled
     }
+    // Don't call base end here - Lock.__destroy() handles it
     this.iterator = null;
   }
 }
