@@ -35,8 +35,8 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
     err ? callback(err) : callback(null, entry ? { done: false, value: entry } : { done: true, value: null });
   }) as NextCallback;
 
-  // done: signal iteration is complete
-  if (iterator.isDone() || !entry) return callback(null, { done: true, value: null });
+  // done: signal iteration is complete (guard against stale lock)
+  if (!iterator.lock || iterator.isDone() || !entry) return callback(null, { done: true, value: null });
 
   // Skip anti-files (these mark files to delete in delta archives)
   if (entry.isAntiFile) {

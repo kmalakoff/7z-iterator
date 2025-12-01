@@ -67,6 +67,7 @@
     "fs-iterator": "*",
     "fs-stats-spys": "*",
     "get-remote": "^2.2.1",
+    "lzma-native": "^8.0.6",
     "pinkie-promise": "*"
   },
   "engines": {

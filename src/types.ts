@@ -28,6 +28,7 @@ export interface LockT {
   err?: Error;
   fd?: number;
   tempPath: string;
+  sourceStream?: NodeJS.ReadableStream;
   retain: () => void;
   release: () => void;
 }

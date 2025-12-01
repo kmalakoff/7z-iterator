@@ -24,6 +24,15 @@ export interface NumberReadResult {
 
 /**
  * Read a variable-length encoded number from a buffer
+ * Uses 7z's variable-length uint64 encoding where the first byte indicates
+ * how many additional bytes follow based on its value:
+ * - 0x00-0x7F: 0 extra bytes (7 bits of data)
+ * - 0x80-0xBF: 1 extra byte (14 bits of data)
+ * - 0xC0-0xDF: 2 extra bytes (21 bits of data)
+ * - 0xE0-0xEF: 3 extra bytes (28 bits of data)
+ * - etc.
+ * - 0xFF: 8 extra bytes (full 64-bit value)
+ *
  * @param buf - Buffer containing encoded number
  * @param offset - Offset to start reading from
  * @returns Object with value and number of bytes consumed
@@ -31,31 +40,57 @@ export interface NumberReadResult {
 export function readNumber(buf: Buffer, offset: number): NumberReadResult {
   var firstByte = buf[offset];
 
-  // Count leading 1 bits to determine extra bytes
-  var mask = 0x80;
-  var extraBytes = 0;
-
-  while ((firstByte & mask) !== 0 && extraBytes < 8) {
-    extraBytes++;
-    mask = mask >>> 1;
-  }
-
-  // Special case: all 8 bits set means 8 extra bytes
-  if (extraBytes === 8) {
-    // Full 64-bit value follows
+  // Special case: 0xFF means 8 extra bytes (full 64-bit value)
+  if (firstByte === 0xff) {
     return {
       value: readUInt64LE(buf, offset + 1),
       bytesRead: 9,
     };
   }
 
-  // Mask off the length bits from first byte
-  var value = firstByte & ((mask - 1) | mask);
+  // Determine number of extra bytes based on first byte value thresholds
+  // This matches the 7z format specification
+  var extraBytes = 0;
+  var mask = 0x80;
 
-  // Add remaining bytes (big-endian order)
-  for (var i = 0; i < extraBytes; i++) {
-    value = value * 256 + buf[offset + 1 + i];
+  if (firstByte <= 0x7f) {
+    extraBytes = 0;
+    mask = 0x80;
+  } else if (firstByte <= 0xbf) {
+    extraBytes = 1;
+    mask = 0x40;
+  } else if (firstByte <= 0xdf) {
+    extraBytes = 2;
+    mask = 0x20;
+  } else if (firstByte <= 0xef) {
+    extraBytes = 3;
+    mask = 0x10;
+  } else if (firstByte <= 0xf7) {
+    extraBytes = 4;
+    mask = 0x08;
+  } else if (firstByte <= 0xfb) {
+    extraBytes = 5;
+    mask = 0x04;
+  } else if (firstByte <= 0xfd) {
+    extraBytes = 6;
+    mask = 0x02;
+  } else {
+    // 0xFE
+    extraBytes = 7;
+    mask = 0x01;
   }
+
+  // Get high part from first byte (bits below the length indicator)
+  var highPart = firstByte & (mask - 1);
+
+  // Read extra bytes as LITTLE-ENDIAN
+  var value = 0;
+  for (var i = 0; i < extraBytes; i++) {
+    value += buf[offset + 1 + i] * Math.pow(256, i);
+  }
+
+  // Combine: value + (highPart << (extraBytes * 8))
+  value += highPart * Math.pow(256, extraBytes);
 
   return {
     value: value,

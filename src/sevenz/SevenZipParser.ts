@@ -172,20 +172,70 @@ export class SevenZipParser {
     // Read pack info from the encoded header structure
     var packInfoResult = this.parseEncodedHeaderStreams(headerBuf, 1);
 
-    // Read the compressed header data
+    // Calculate compressed header position
+    // For simple archives: header is at SIGNATURE_HEADER_SIZE + packPos
+    // For BCJ2/complex archives: header may be at the END of pack data area
+    // The pack data area ends at nextHeaderOffset (where encoded header starts)
     var compressedStart = SIGNATURE_HEADER_SIZE + packInfoResult.packPos;
     var compressedData = this.source.read(compressedStart, packInfoResult.packSize);
 
     // Decompress using the specified codec
     var codec = getCodec(packInfoResult.codecId);
-    var decompressedHeader = codec.decode(compressedData, packInfoResult.properties, packInfoResult.unpackSize);
+    var decompressedHeader: Buffer | null = null;
 
-    // Verify CRC if present
-    if (packInfoResult.unpackCRC !== undefined) {
-      var actualCRC = crc32(decompressedHeader);
-      if (actualCRC !== packInfoResult.unpackCRC) {
-        throw createCodedError('Decompressed header CRC mismatch', ErrorCode.CRC_MISMATCH);
+    // Try decompressing from the calculated position first
+    try {
+      decompressedHeader = codec.decode(compressedData, packInfoResult.properties, packInfoResult.unpackSize);
+      // Verify CRC if present
+      if (packInfoResult.unpackCRC !== undefined) {
+        var actualCRC = crc32(decompressedHeader);
+        if (actualCRC !== packInfoResult.unpackCRC) {
+          decompressedHeader = null; // CRC mismatch, need to search
+        }
       }
+    } catch {
+      decompressedHeader = null; // Decompression failed, need to search
+    }
+
+    // If initial decompression failed, search for the correct position as a fallback
+    // This handles edge cases where packPos doesn't point directly to header pack data
+    if (decompressedHeader === null && this.signature) {
+      var packAreaEnd = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
+      var searchStart = packAreaEnd - packInfoResult.packSize;
+      var searchEnd = Math.max(SIGNATURE_HEADER_SIZE, compressedStart - 100000);
+
+      // Scan for LZMA data starting with 0x00 (range coder init)
+      // Try each candidate and validate with CRC
+      var scanChunkSize = 4096;
+      searchLoop: for (var chunkStart = searchStart; chunkStart >= searchEnd; chunkStart -= scanChunkSize) {
+        var chunk = this.source.read(chunkStart, scanChunkSize + packInfoResult.packSize);
+        for (var i = 0; i < Math.min(chunk.length, scanChunkSize); i++) {
+          if (chunk[i] === 0x00) {
+            var candidateData = chunk.subarray(i, i + packInfoResult.packSize);
+            if (candidateData.length === packInfoResult.packSize) {
+              try {
+                var candidateDecompressed = codec.decode(candidateData, packInfoResult.properties, packInfoResult.unpackSize);
+                if (packInfoResult.unpackCRC !== undefined) {
+                  var candCRC = crc32(candidateDecompressed);
+                  if (candCRC === packInfoResult.unpackCRC) {
+                    decompressedHeader = candidateDecompressed;
+                    break searchLoop;
+                  }
+                } else {
+                  decompressedHeader = candidateDecompressed;
+                  break searchLoop;
+                }
+              } catch {
+                // Decompression failed, continue searching
+              }
+            }
+          }
+        }
+      }
+    }
+
+    if (decompressedHeader === null) {
+      throw createCodedError('Failed to decompress header - could not find valid LZMA data', ErrorCode.CORRUPT_HEADER);
     }
 
     // Now parse the decompressed header
