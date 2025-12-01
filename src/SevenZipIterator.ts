@@ -80,6 +80,8 @@ export default class SevenZipIterator extends BaseIterator {
       });
     } else {
       // Stream input - use hybrid memory/temp-file approach
+      // Store source stream in lock for cleanup if destroyed during download
+      this.lock.sourceStream = source as NodeJS.ReadableStream;
       var tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
       queue.defer((cb: (err?: Error) => void) => {
         streamToSource(

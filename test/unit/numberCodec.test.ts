@@ -43,11 +43,51 @@ describe('NumberCodec', () => {
     });
 
     it('should read three-byte values', () => {
-      // 110xxxxx + 2 bytes
+      // 110xxxxx + 2 bytes (little-endian)
       var buf = bufferFrom([0xc0, 0x00, 0x00]);
       var result = readNumber(buf, 0);
       assert.equal(result.value, 0);
       assert.equal(result.bytesRead, 3);
+
+      // Max 3-byte value: 0xDF 0xFF 0xFF = 2097151
+      buf = bufferFrom([0xdf, 0xff, 0xff]);
+      result = readNumber(buf, 0);
+      assert.equal(result.value, 2097151);
+      assert.equal(result.bytesRead, 3);
+
+      // Real-world value: packSize from Node.js 7z = 31548
+      // 0xC0 0x3C 0x7B: highPart=0, extra bytes=0x7B3C (little-endian) = 31548
+      buf = bufferFrom([0xc0, 0x3c, 0x7b]);
+      result = readNumber(buf, 0);
+      assert.equal(result.value, 31548);
+      assert.equal(result.bytesRead, 3);
+    });
+
+    it('should read four-byte values (large varints)', () => {
+      // 1110xxxx + 3 bytes (little-endian)
+      // This tests the bug fix for BCJ2 archives with large packPos values
+
+      // Min 4-byte (where 3-byte isn't enough): 0xE0 0x00 0x00 0x01
+      // highPart=0, extra bytes=0x010000 (little-endian) = 65536
+      var buf = bufferFrom([0xe0, 0x00, 0x00, 0x01]);
+      var result = readNumber(buf, 0);
+      assert.equal(result.value, 65536);
+      assert.equal(result.bytesRead, 4);
+
+      // Max 4-byte: 0xEF 0xFF 0xFF 0xFF = 268435455
+      buf = bufferFrom([0xef, 0xff, 0xff, 0xff]);
+      result = readNumber(buf, 0);
+      assert.equal(result.value, 268435455);
+      assert.equal(result.bytesRead, 4);
+
+      // Real-world value: packPos from Node.js Windows 7z = 22579754
+      // This is the exact value that triggered the original bug
+      // 0xE1 0x2A 0x8A 0x58: highPart=1, extra bytes=0x588A2A (little-endian)
+      // value = 0x588A2A + (1 << 24) = 5802538 + 16777216 = 22579754
+      buf = bufferFrom([0xe1, 0x2a, 0x8a, 0x58]);
+      result = readNumber(buf, 0);
+      assert.equal(result.value, 22579754);
+      assert.equal(result.bytesRead, 4);
     });
 
     it('should read at specified offset', () => {

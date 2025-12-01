@@ -11,6 +11,9 @@ export default class Lock {
   iterator: BaseIterator = null;
   err: Error = null;
 
+  // cleanup resources
+  sourceStream: NodeJS.ReadableStream = null;
+
   retain() {
     this.count++;
   }
@@ -22,6 +25,13 @@ export default class Lock {
   }
 
   private __destroy() {
+    // Destroy source stream FIRST to stop data flow (e.g., during download)
+    if (this.sourceStream) {
+      const stream = this.sourceStream as NodeJS.ReadableStream & { destroy?: () => void };
+      if (typeof stream.destroy === 'function') stream.destroy();
+      this.sourceStream = null;
+    }
+
     if (this.tempPath) {
       try {
         rimraf2.sync(this.tempPath, { disableGlob: true });
