@@ -1,0 +1,1 @@
+ignores: ["7z-iterator", "lzma-native", "readable-stream"]
