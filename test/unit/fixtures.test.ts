@@ -3,9 +3,15 @@ import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
 import fs from 'fs';
 import mkdirp from 'mkdirp-classic';
+import arrayFind from 'array-find';
 import path from 'path';
 import rimraf2 from 'rimraf2';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
+
+// Node 0.8 compatible string endsWith
+function stringEndsWith(str: string, suffix: string): boolean {
+  return str.indexOf(suffix, str.length - suffix.length) !== -1;
+}
 
 describe('fixtures', () => {
   beforeEach((callback) => {
@@ -460,10 +466,10 @@ describe('fixtures', () => {
           assert.equal(entries.length, 7, 'Should have 7 entries');
 
           // Find the deepest file
-          const fileEntry = entries.find((e) => e.type === 'file');
+          const fileEntry = arrayFind(entries, (e) => e.type === 'file');
           assert.ok(fileEntry, 'Should have a file entry');
           assert.ok(fileEntry.path.length > 260, `Path should be > 260 chars, got ${fileEntry.path.length}`);
-          assert.ok(fileEntry.path.endsWith('test.txt'), 'Should end with test.txt');
+          assert.ok(stringEndsWith(fileEntry.path, 'test.txt'), 'Should end with test.txt');
 
           done();
         }
@@ -524,13 +530,13 @@ describe('fixtures', () => {
           assert.equal(symlinks.length, 5, 'Should have 5 symlinks');
 
           // Check one symlink has correct linkpath
-          const symlink1 = symlinks.find((e) => e.path === 'data/symlink1');
+          const symlink1 = arrayFind(symlinks, (e) => e.path === 'data/symlink1');
           assert.ok(symlink1, 'Should have data/symlink1');
           assert.equal(symlink1.type, 'symlink', 'Should be detected as symlink');
           assert.equal(symlink1.linkpath, 'fixture.js', 'Should have correct linkpath');
 
           // Check relative symlink
-          const nestedSymlink = symlinks.find((e) => e.path === 'data/dir1/dir2/symlink1');
+          const nestedSymlink = arrayFind(symlinks, (e) => e.path === 'data/dir1/dir2/symlink1');
           assert.ok(nestedSymlink, 'Should have nested symlink');
           assert.equal(nestedSymlink.linkpath, '../fixture.js', 'Should have relative linkpath');
 
