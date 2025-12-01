@@ -54,6 +54,7 @@
     "on-one": "*",
     "os-shim": "*",
     "pako": "^1.0.11",
+    "patch-package": "*",
     "queue-cb": "*",
     "readable-stream": "^2.3.7",
     "rimraf2": "*",
@@ -71,7 +72,6 @@
     "get-remote": "^2.2.1",
     "lzma-native": "^8.0.6",
     "node-version-use": "*",
-    "patch-package": "^8.0.1",
     "pinkie-promise": "*",
     "ts-dev-stack": "*"
   },
