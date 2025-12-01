@@ -1,0 +1,69 @@
+import { type FileAttributes, FileEntry, type NoParamCallback, waitForAccess } from 'extract-base-iterator';
+import fs from 'fs';
+import oo from 'on-one';
+import type { SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
+import type { ExtractOptions, LockT } from './types.ts';
+
+export default class SevenZipFileEntry extends FileEntry {
+  private lock: LockT;
+  private entry: SevenZipEntry;
+  private parser: SevenZipParser;
+
+  constructor(attributes: FileAttributes, entry: SevenZipEntry, parser: SevenZipParser, lock: LockT) {
+    super(attributes);
+    this.entry = entry;
+    this.parser = parser;
+    this.lock = lock;
+    this.lock.retain();
+  }
+
+  create(dest: string, options: ExtractOptions | NoParamCallback, callback: NoParamCallback): undefined | Promise<boolean> {
+    if (typeof options === 'function') {
+      callback = options;
+      options = null;
+    }
+
+    if (typeof callback === 'function') {
+      options = options || {};
+      return FileEntry.prototype.create.call(this, dest, options, (err?: Error) => {
+        callback(err);
+        if (this.lock) {
+          this.lock.release();
+          this.lock = null;
+        }
+      });
+    }
+    return new Promise((resolve, reject) => {
+      this.create(dest, options, (err?: Error, done?: boolean) => {
+        err ? reject(err) : resolve(done);
+      });
+    });
+  }
+
+  _writeFile(fullPath: string, _options: ExtractOptions, callback: NoParamCallback): undefined {
+    if (!this.entry || !this.parser) {
+      callback(new Error('7z FileEntry missing entry. Check for calling create multiple times'));
+      return;
+    }
+
+    try {
+      var stream = this.parser.getEntryStream(this.entry);
+      var res = stream.pipe(fs.createWriteStream(fullPath));
+      oo(res, ['error', 'end', 'close', 'finish'], (err?: Error) => {
+        err ? callback(err) : waitForAccess(fullPath, callback);
+      });
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  destroy() {
+    FileEntry.prototype.destroy.call(this);
+    this.entry = null;
+    this.parser = null;
+    if (this.lock) {
+      this.lock.release();
+      this.lock = null;
+    }
+  }
+}
