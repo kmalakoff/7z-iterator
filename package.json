@@ -63,6 +63,7 @@
   "devDependencies": {
     "@types/mocha": "*",
     "@types/node": "*",
+    "array-find": "^1.0.0",
     "fs-iterator": "*",
     "fs-stats-spys": "*",
     "get-remote": "^2.2.1",
