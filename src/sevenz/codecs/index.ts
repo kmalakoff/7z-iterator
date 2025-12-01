@@ -5,6 +5,7 @@ import type { Transform } from 'readable-stream';
 import { CodecId, createCodedError, ErrorCode } from '../constants.ts';
 import { createAesDecoder, decodeAes, getPassword, setPassword } from './Aes.ts';
 import { createBcjDecoder, decodeBcj } from './Bcj.ts';
+import { createBcj2Decoder, decodeBcj2, decodeBcj2Multi } from './Bcj2.ts';
 import { createBzip2Decoder, decodeBzip2 } from './BZip2.ts';
 import { createCopyDecoder, decodeCopy } from './Copy.ts';
 import { createDeflateDecoder, decodeDeflate } from './Deflate.ts';
@@ -80,12 +81,23 @@ export function getCodecName(id: number[]): string {
   if (codecIdEquals(id, CodecId.LZMA)) return 'LZMA';
   if (codecIdEquals(id, CodecId.LZMA2)) return 'LZMA2';
   if (codecIdEquals(id, CodecId.BCJ_X86)) return 'BCJ (x86)';
+  if (codecIdEquals(id, CodecId.BCJ2)) return 'BCJ2';
   if (codecIdEquals(id, CodecId.DELTA)) return 'Delta';
   if (codecIdEquals(id, CodecId.DEFLATE)) return 'Deflate';
   if (codecIdEquals(id, CodecId.BZIP2)) return 'BZip2';
   if (codecIdEquals(id, CodecId.AES)) return 'AES-256';
   return `Unknown (${codecIdToKey(id)})`;
 }
+
+/**
+ * Check if a codec ID matches BCJ2
+ */
+export function isBcj2Codec(id: number[]): boolean {
+  return codecIdEquals(id, CodecId.BCJ2);
+}
+
+// Re-export BCJ2 multi-stream decoder for special handling
+export { decodeBcj2Multi };
 
 // Register built-in codecs
 
@@ -135,4 +147,11 @@ registerCodec(CodecId.BZIP2, {
 registerCodec(CodecId.AES, {
   decode: decodeAes,
   createDecoder: createAesDecoder,
+});
+
+// BCJ2 (x86-64) filter - multi-stream
+// Note: BCJ2 requires special handling in SevenZipParser due to 4-stream architecture
+registerCodec(CodecId.BCJ2, {
+  decode: decodeBcj2,
+  createDecoder: createBcj2Decoder,
 });

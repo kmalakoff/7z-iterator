@@ -4,7 +4,7 @@
 import { allocBuffer, crc32 } from 'extract-base-iterator';
 import fs from 'fs';
 import { PassThrough, type Readable } from 'readable-stream';
-import { getCodec, getCodecName, isCodecSupported } from './codecs/index.ts';
+import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
 import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE } from './constants.ts';
 import { type FileInfo, parseEncodedHeader, parseHeaderContent, parseSignatureHeader, type SignatureHeader, type StreamsInfo } from './headers.ts';
 import { readNumber } from './NumberCodec.ts';
@@ -521,6 +521,18 @@ export class SevenZipParser {
   }
 
   /**
+   * Check if a folder uses BCJ2 codec
+   */
+  private folderHasBcj2(folder: { coders: { id: number[] }[] }): boolean {
+    for (var i = 0; i < folder.coders.length; i++) {
+      if (isBcj2Codec(folder.coders[i].id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
    * Get decompressed data for a folder, with caching for solid archives
    */
   private getDecompressedFolder(folderIndex: number): Buffer {
@@ -534,6 +546,13 @@ export class SevenZipParser {
     }
 
     var folder = this.streamsInfo.folders[folderIndex];
+
+    // Check if this folder uses BCJ2 (requires special multi-stream handling)
+    if (this.folderHasBcj2(folder)) {
+      var data = this.decompressBcj2Folder(folderIndex);
+      this.decompressedCache[folderIndex] = data;
+      return data;
+    }
 
     // Calculate packed data position
     var packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
@@ -555,19 +574,230 @@ export class SevenZipParser {
     var packedData = this.source.read(packPos, packSize);
 
     // Decompress through codec chain
-    var data = packedData;
+    var data2 = packedData;
     for (var l = 0; l < folder.coders.length; l++) {
       var coderInfo = folder.coders[l];
       var codec = getCodec(coderInfo.id);
       // Get unpack size for this coder (needed by LZMA)
       var unpackSize = folder.unpackSizes[l];
-      data = codec.decode(data, coderInfo.properties, unpackSize);
+      data2 = codec.decode(data2, coderInfo.properties, unpackSize);
     }
 
     // Cache for solid archives (when multiple files share a folder)
-    this.decompressedCache[folderIndex] = data;
+    this.decompressedCache[folderIndex] = data2;
 
-    return data;
+    return data2;
+  }
+
+  /**
+   * Decompress a BCJ2 folder with multi-stream handling
+   * BCJ2 uses 4 input streams: main, call, jump, range coder
+   */
+  private decompressBcj2Folder(folderIndex: number): Buffer {
+    if (!this.streamsInfo) {
+      throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
+    }
+
+    var folder = this.streamsInfo.folders[folderIndex];
+
+    // Calculate starting pack position
+    var packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+
+    // Find which pack stream index this folder starts at
+    var packStreamIndex = 0;
+    for (var j = 0; j < folderIndex; j++) {
+      packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
+    }
+
+    // Calculate position
+    for (var k = 0; k < packStreamIndex; k++) {
+      packPos += this.streamsInfo.packSizes[k];
+    }
+
+    // Read all pack streams for this folder
+    var numPackStreams = folder.packedStreams.length;
+    var packStreams: Buffer[] = [];
+    var currentPos = packPos;
+
+    for (var p = 0; p < numPackStreams; p++) {
+      var size = this.streamsInfo.packSizes[packStreamIndex + p];
+      packStreams.push(this.source.read(currentPos, size));
+      currentPos += size;
+    }
+
+    // Build a map of coder outputs
+    // For BCJ2, typical structure is:
+    //   Coder 0: LZMA2 (main stream) - 1 in, 1 out
+    //   Coder 1: LZMA (call stream) - 1 in, 1 out
+    //   Coder 2: LZMA (jump stream) - 1 in, 1 out
+    //   Coder 3: BCJ2 - 4 in, 1 out
+    // Pack streams map to: coder inputs not bound to other coder outputs
+
+    // First, decompress each non-BCJ2 coder
+    var coderOutputs: { [key: number]: Buffer } = {};
+
+    // Find the BCJ2 coder
+    var bcj2CoderIndex = -1;
+    for (var c = 0; c < folder.coders.length; c++) {
+      if (isBcj2Codec(folder.coders[c].id)) {
+        bcj2CoderIndex = c;
+        break;
+      }
+    }
+
+    if (bcj2CoderIndex === -1) {
+      throw createCodedError('BCJ2 coder not found in folder', ErrorCode.CORRUPT_HEADER);
+    }
+
+    // Build input stream index -> pack stream mapping
+    // folder.packedStreams tells us which input indices are unbound and their order
+    var inputToPackStream: { [key: number]: number } = {};
+    for (var pi = 0; pi < folder.packedStreams.length; pi++) {
+      inputToPackStream[folder.packedStreams[pi]] = pi;
+    }
+
+    // Build output stream index -> coder mapping
+    var outputToCoder: { [key: number]: number } = {};
+    var totalOutputs = 0;
+    for (var co = 0; co < folder.coders.length; co++) {
+      var numOut = folder.coders[co].numOutStreams;
+      for (var outp = 0; outp < numOut; outp++) {
+        outputToCoder[totalOutputs + outp] = co;
+      }
+      totalOutputs += numOut;
+    }
+
+    // Decompress non-BCJ2 coders (LZMA, LZMA2)
+    // We need to process in dependency order
+    var processed: { [key: number]: boolean } = {};
+
+    var processOrder = this.getCoderProcessOrder(folder, bcj2CoderIndex);
+
+    for (var po = 0; po < processOrder.length; po++) {
+      var coderIdx = processOrder[po];
+      if (coderIdx === bcj2CoderIndex) continue;
+
+      var coder = folder.coders[coderIdx];
+      var codec = getCodec(coder.id);
+
+      // Find input for this coder
+      var coderInputStart = 0;
+      for (var ci2 = 0; ci2 < coderIdx; ci2++) {
+        coderInputStart += folder.coders[ci2].numInStreams;
+      }
+
+      // Get input data (from pack stream)
+      var inputIdx = coderInputStart;
+      var packStreamIdx = inputToPackStream[inputIdx];
+      var inputData = packStreams[packStreamIdx];
+
+      // Decompress
+      var unpackSize = folder.unpackSizes[coderIdx];
+      var outputData = codec.decode(inputData, coder.properties, unpackSize);
+
+      // Store in coder outputs
+      var coderOutputStart = 0;
+      for (var co2 = 0; co2 < coderIdx; co2++) {
+        coderOutputStart += folder.coders[co2].numOutStreams;
+      }
+      coderOutputs[coderOutputStart] = outputData;
+      processed[coderIdx] = true;
+    }
+
+    // Now process BCJ2
+    // BCJ2 has 4 inputs, need to map them correctly
+    // Standard order: main(LZMA2 output), call(LZMA output), jump(LZMA output), range(raw pack)
+    var bcj2InputStart = 0;
+    for (var ci3 = 0; ci3 < bcj2CoderIndex; ci3++) {
+      bcj2InputStart += folder.coders[ci3].numInStreams;
+    }
+
+    var bcj2Inputs: Buffer[] = [];
+    for (var bi = 0; bi < 4; bi++) {
+      var globalIdx = bcj2InputStart + bi;
+
+      // Check if this input is bound to a coder output
+      var boundOutput = -1;
+      for (var bp2 = 0; bp2 < folder.bindPairs.length; bp2++) {
+        if (folder.bindPairs[bp2].inIndex === globalIdx) {
+          boundOutput = folder.bindPairs[bp2].outIndex;
+          break;
+        }
+      }
+
+      if (boundOutput >= 0) {
+        // Get from coder outputs
+        bcj2Inputs.push(coderOutputs[boundOutput]);
+      } else {
+        // Get from pack streams
+        var psIdx = inputToPackStream[globalIdx];
+        bcj2Inputs.push(packStreams[psIdx]);
+      }
+    }
+
+    // Get BCJ2 unpack size
+    var bcj2OutputStart = 0;
+    for (var co3 = 0; co3 < bcj2CoderIndex; co3++) {
+      bcj2OutputStart += folder.coders[co3].numOutStreams;
+    }
+    var bcj2UnpackSize = folder.unpackSizes[bcj2OutputStart];
+
+    // Decode BCJ2
+    return decodeBcj2Multi(bcj2Inputs, undefined, bcj2UnpackSize);
+  }
+
+  /**
+   * Get processing order for coders (dependency order)
+   */
+  private getCoderProcessOrder(folder: { coders: { numInStreams: number; numOutStreams: number }[]; bindPairs: { inIndex: number; outIndex: number }[] }, excludeIdx: number): number[] {
+    var order: number[] = [];
+    var processed: { [key: number]: boolean } = {};
+
+    // Simple approach: process coders that don't depend on unprocessed outputs
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (var c = 0; c < folder.coders.length; c++) {
+        if (processed[c] || c === excludeIdx) continue;
+
+        // Check if all inputs are satisfied
+        var inputStart = 0;
+        for (var i = 0; i < c; i++) {
+          inputStart += folder.coders[i].numInStreams;
+        }
+
+        var canProcess = true;
+        for (var inp = 0; inp < folder.coders[c].numInStreams; inp++) {
+          var globalIdx = inputStart + inp;
+          // Check if bound to an unprocessed coder
+          for (var bp = 0; bp < folder.bindPairs.length; bp++) {
+            if (folder.bindPairs[bp].inIndex === globalIdx) {
+              // Find which coder produces this output
+              var outIdx = folder.bindPairs[bp].outIndex;
+              var outStart = 0;
+              for (var oc = 0; oc < folder.coders.length; oc++) {
+                var numOut = folder.coders[oc].numOutStreams;
+                if (outIdx < outStart + numOut) {
+                  if (!processed[oc] && oc !== excludeIdx) {
+                    canProcess = false;
+                  }
+                  break;
+                }
+                outStart += numOut;
+              }
+            }
+          }
+        }
+
+        if (canProcess) {
+          order.push(c);
+          processed[c] = true;
+          changed = true;
+        }
+      }
+    }
+
+    return order;
   }
 
   /**

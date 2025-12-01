@@ -1,1 +1,1 @@
-ignores: ["7z-iterator", "lzma-native", "readable-stream"]
+ignores: ["node-version-use", "ts-dev-stack", "@biomejs/biome", "7z-iterator", "lzma-native", "readable-stream"]

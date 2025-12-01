@@ -86,11 +86,11 @@ export function readNumber(buf: Buffer, offset: number): NumberReadResult {
   // Read extra bytes as LITTLE-ENDIAN
   var value = 0;
   for (var i = 0; i < extraBytes; i++) {
-    value += buf[offset + 1 + i] * Math.pow(256, i);
+    value += buf[offset + 1 + i] * 256 ** i;
   }
 
   // Combine: value + (highPart << (extraBytes * 8))
-  value += highPart * Math.pow(256, extraBytes);
+  value += highPart * 256 ** extraBytes;
 
   return {
     value: value,

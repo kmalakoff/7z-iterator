@@ -39,8 +39,9 @@
   "scripts": {
     "build": "tsds build",
     "format": "biome check --write --unsafe",
+    "postinstall": "patch-package",
     "prepublishOnly": "tsds validate",
-    "test": "mocha --no-timeouts test/**/*.test.*",
+    "test": "tsds test:node --no-timeouts",
     "test:engines": "nvu engines tsds test:node --no-timeouts",
     "version": "tsds version"
   },
@@ -61,6 +62,7 @@
     "temp-suffix": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "*",
     "@types/mocha": "*",
     "@types/node": "*",
     "array-find": "^1.0.0",
@@ -68,7 +70,10 @@
     "fs-stats-spys": "*",
     "get-remote": "^2.2.1",
     "lzma-native": "^8.0.6",
-    "pinkie-promise": "*"
+    "node-version-use": "*",
+    "patch-package": "^8.0.1",
+    "pinkie-promise": "*",
+    "ts-dev-stack": "*"
   },
   "engines": {
     "node": ">=0.8"
