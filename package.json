@@ -52,7 +52,6 @@
     "mkdirp-classic": "*",
     "on-one": "*",
     "os-shim": "*",
-    "pako": "^1.0.11",
     "queue-cb": "*",
     "readable-stream": "^2.3.7",
     "rimraf2": "*",
