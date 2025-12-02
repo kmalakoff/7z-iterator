@@ -680,4 +680,139 @@ describe('fixtures', () => {
       );
     });
   });
+
+  describe('arm.7z (ARM BCJ filter)', () => {
+    it('should extract ARM BCJ filtered archive', (done) => {
+      const iterator = new SevenZipIterator(path.join(DATA_DIR, 'arm.7z'));
+      let extractedPath = '';
+
+      iterator.forEach(
+        (entry, callback) => {
+          if (entry.type === 'file') {
+            extractedPath = entry.path;
+          }
+          entry.create(TARGET, {}, callback);
+        },
+        { callbacks: true },
+        (err): undefined => {
+          if (err) {
+            done(err);
+            return;
+          }
+
+          const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
+          assert.equal(content, 'BCJ ARM filter test content', 'Should extract ARM BCJ content');
+          done();
+        }
+      );
+    });
+  });
+
+  describe('arm64.7z (ARM64/ARMT BCJ filter)', () => {
+    it('should extract ARM64 BCJ filtered archive', (done) => {
+      const iterator = new SevenZipIterator(path.join(DATA_DIR, 'arm64.7z'));
+      let extractedPath = '';
+
+      iterator.forEach(
+        (entry, callback) => {
+          if (entry.type === 'file') {
+            extractedPath = entry.path;
+          }
+          entry.create(TARGET, {}, callback);
+        },
+        { callbacks: true },
+        (err): undefined => {
+          if (err) {
+            done(err);
+            return;
+          }
+
+          const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
+          assert.equal(content, 'BCJ ARM64 filter test content', 'Should extract ARM64 BCJ content');
+          done();
+        }
+      );
+    });
+  });
+
+  describe('ppc.7z (PowerPC BCJ filter)', () => {
+    it('should extract PowerPC BCJ filtered archive', (done) => {
+      const iterator = new SevenZipIterator(path.join(DATA_DIR, 'ppc.7z'));
+      let extractedPath = '';
+
+      iterator.forEach(
+        (entry, callback) => {
+          if (entry.type === 'file') {
+            extractedPath = entry.path;
+          }
+          entry.create(TARGET, {}, callback);
+        },
+        { callbacks: true },
+        (err): undefined => {
+          if (err) {
+            done(err);
+            return;
+          }
+
+          const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
+          assert.equal(content, 'BCJ PowerPC filter test content', 'Should extract PowerPC BCJ content');
+          done();
+        }
+      );
+    });
+  });
+
+  describe('ia64.7z (IA64 BCJ filter)', () => {
+    it('should extract IA64 BCJ filtered archive', (done) => {
+      const iterator = new SevenZipIterator(path.join(DATA_DIR, 'ia64.7z'));
+      let extractedPath = '';
+
+      iterator.forEach(
+        (entry, callback) => {
+          if (entry.type === 'file') {
+            extractedPath = entry.path;
+          }
+          entry.create(TARGET, {}, callback);
+        },
+        { callbacks: true },
+        (err): undefined => {
+          if (err) {
+            done(err);
+            return;
+          }
+
+          const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
+          assert.equal(content, 'BCJ IA64 filter test content', 'Should extract IA64 BCJ content');
+          done();
+        }
+      );
+    });
+  });
+
+  describe('sparc.7z (SPARC BCJ filter)', () => {
+    it('should extract SPARC BCJ filtered archive', (done) => {
+      const iterator = new SevenZipIterator(path.join(DATA_DIR, 'sparc.7z'));
+      let extractedPath = '';
+
+      iterator.forEach(
+        (entry, callback) => {
+          if (entry.type === 'file') {
+            extractedPath = entry.path;
+          }
+          entry.create(TARGET, {}, callback);
+        },
+        { callbacks: true },
+        (err): undefined => {
+          if (err) {
+            done(err);
+            return;
+          }
+
+          const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
+          assert.equal(content, 'BCJ SPARC filter test content', 'Should extract SPARC BCJ content');
+          done();
+        }
+      );
+    });
+  });
 });

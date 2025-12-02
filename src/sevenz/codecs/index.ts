@@ -6,6 +6,12 @@ import { CodecId, createCodedError, ErrorCode } from '../constants.ts';
 import { createAesDecoder, decodeAes, getPassword, setPassword } from './Aes.ts';
 import { createBcjDecoder, decodeBcj } from './Bcj.ts';
 import { createBcj2Decoder, decodeBcj2, decodeBcj2Multi } from './Bcj2.ts';
+import { createBcjArmDecoder, decodeBcjArm } from './BcjArm.ts';
+import { createBcjArm64Decoder, decodeBcjArm64 } from './BcjArm64.ts';
+import { createBcjArmtDecoder, decodeBcjArmt } from './BcjArmt.ts';
+import { createBcjIa64Decoder, decodeBcjIa64 } from './BcjIa64.ts';
+import { createBcjPpcDecoder, decodeBcjPpc } from './BcjPpc.ts';
+import { createBcjSparcDecoder, decodeBcjSparc } from './BcjSparc.ts';
 import { createBzip2Decoder, decodeBzip2 } from './BZip2.ts';
 import { createCopyDecoder, decodeCopy } from './Copy.ts';
 import { createDeflateDecoder, decodeDeflate } from './Deflate.ts';
@@ -81,7 +87,14 @@ export function getCodecName(id: number[]): string {
   if (codecIdEquals(id, CodecId.LZMA)) return 'LZMA';
   if (codecIdEquals(id, CodecId.LZMA2)) return 'LZMA2';
   if (codecIdEquals(id, CodecId.BCJ_X86)) return 'BCJ (x86)';
+  if (codecIdEquals(id, CodecId.BCJ_ARM)) return 'BCJ (ARM)';
+  if (codecIdEquals(id, CodecId.BCJ_ARMT)) return 'BCJ (ARM Thumb)';
+  if (codecIdEquals(id, CodecId.BCJ_ARM64)) return 'BCJ (ARM64)';
+  if (codecIdEquals(id, CodecId.BCJ_PPC)) return 'BCJ (PowerPC)';
+  if (codecIdEquals(id, CodecId.BCJ_IA64)) return 'BCJ (IA64)';
+  if (codecIdEquals(id, CodecId.BCJ_SPARC)) return 'BCJ (SPARC)';
   if (codecIdEquals(id, CodecId.BCJ2)) return 'BCJ2';
+  if (codecIdEquals(id, CodecId.PPMD)) return 'PPMd';
   if (codecIdEquals(id, CodecId.DELTA)) return 'Delta';
   if (codecIdEquals(id, CodecId.DEFLATE)) return 'Deflate';
   if (codecIdEquals(id, CodecId.BZIP2)) return 'BZip2';
@@ -125,6 +138,42 @@ registerCodec(CodecId.BCJ_X86, {
   createDecoder: createBcjDecoder,
 });
 
+// BCJ (ARM) filter
+registerCodec(CodecId.BCJ_ARM, {
+  decode: decodeBcjArm,
+  createDecoder: createBcjArmDecoder,
+});
+
+// BCJ (ARM Thumb) filter
+registerCodec(CodecId.BCJ_ARMT, {
+  decode: decodeBcjArmt,
+  createDecoder: createBcjArmtDecoder,
+});
+
+// BCJ (ARM64) filter
+registerCodec(CodecId.BCJ_ARM64, {
+  decode: decodeBcjArm64,
+  createDecoder: createBcjArm64Decoder,
+});
+
+// BCJ (PowerPC) filter
+registerCodec(CodecId.BCJ_PPC, {
+  decode: decodeBcjPpc,
+  createDecoder: createBcjPpcDecoder,
+});
+
+// BCJ (IA64) filter
+registerCodec(CodecId.BCJ_IA64, {
+  decode: decodeBcjIa64,
+  createDecoder: createBcjIa64Decoder,
+});
+
+// BCJ (SPARC) filter
+registerCodec(CodecId.BCJ_SPARC, {
+  decode: decodeBcjSparc,
+  createDecoder: createBcjSparcDecoder,
+});
+
 // Delta filter
 registerCodec(CodecId.DELTA, {
   decode: decodeDelta,
@@ -155,3 +204,5 @@ registerCodec(CodecId.BCJ2, {
   decode: decodeBcj2,
   createDecoder: createBcj2Decoder,
 });
+
+// Note: PPMd codec is not implemented. See FUTURE_ENHANCEMENTS.md
