@@ -14,16 +14,21 @@ import type { Transform } from 'readable-stream';
 
 var _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
 
-// Try to load lzma-native
+// Try to load lzma-native (only on Node 10+ where ES6 class syntax is supported)
+// Note: We must check the version BEFORE requiring because syntax errors during
+// module parsing cannot be caught by try/catch
 var lzmaNative: typeof import('lzma-native') | null = null;
 var _hasNativeLzmaLib = false;
+var major = +process.versions.node.split('.')[0];
 
-try {
-  lzmaNative = _require('lzma-native');
-  // Verify rawDecoder support
-  _hasNativeLzmaLib = lzmaNative !== null && typeof lzmaNative.createStream === 'function';
-} catch (_e) {
-  // lzma-native not available - will use lzma-purejs
+if (major >= 10) {
+  try {
+    lzmaNative = _require('lzma-native');
+    // Verify rawDecoder support
+    _hasNativeLzmaLib = lzmaNative !== null && typeof lzmaNative.createStream === 'function';
+  } catch (_e) {
+    // lzma-native not available - will use lzma-purejs
+  }
 }
 
 // Export whether native lzma is available for streaming
