@@ -1,4 +1,8 @@
-// LZMA2 codec - wrapper around lzma-purejs for LZMA2 decompression
+import Module from 'module';
+
+const _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
+
+// LZMA2 codec - wrapper around vendored lzma-purejs for LZMA2 decompression
 // LZMA2 is a container format that wraps LZMA chunks with framing
 //
 // LZMA2 format specification:
@@ -10,18 +14,18 @@
 // 0x02         = Uncompressed chunk, no dictionary reset
 // 0x80-0xFF    = LZMA compressed chunk (bits encode reset flags and size)
 //
-// Note: lzma-purejs is patched via patch-package to support LZMA2 state preservation.
-// The patch adds setSolid(true/false) method to control whether state is preserved
-// across code() calls.
+// Note: vendored lzma-purejs includes LZMA2 state preservation support.
+// The setSolid(true/false) method controls whether state is preserved across code() calls.
 
-// Import lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
 import { allocBufferUnsafe } from 'extract-base-iterator';
-import lzmajs from 'lzma-purejs';
 import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 import { createInputStream, createOutputStream } from './streams.ts';
 
-var LzmaDecoder = lzmajs.LZMA.Decoder;
+// Import vendored lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
+// Path accounts for build output in dist/esm/sevenz/codecs/
+const { LZMA } = _require('../../../../assets/lzma-purejs');
+const LzmaDecoder = LZMA.Decoder;
 
 /**
  * Decode LZMA2 dictionary size from properties byte
@@ -76,7 +80,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
   var offset = 0;
 
   // LZMA decoder instance - reused across chunks
-  // The decoder is patched via patch-package to support setSolid() for LZMA2 state preservation
+  // The vendored decoder supports setSolid() for LZMA2 state preservation
   // The decoder also has _nowPos64 which tracks cumulative position for rep0 validation
   // and _prevByte which is used for literal decoder context selection
   var decoder = new LzmaDecoder() as InstanceType<typeof LzmaDecoder> & {

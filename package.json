@@ -35,12 +35,11 @@
   "types": "dist/cjs/index.d.ts",
   "files": [
     "dist",
-    "patches"
+    "assets"
   ],
   "scripts": {
     "build": "tsds build",
     "format": "biome check --write --unsafe",
-    "postinstall": "patch-package",
     "prepublishOnly": "tsds validate",
     "test": "tsds test:node --no-timeouts",
     "test:engines": "nvu engines tsds test:node --no-timeouts",
@@ -50,12 +49,10 @@
     "call-once-fn": "*",
     "extract-base-iterator": "*",
     "lodash.compact": "*",
-    "lzma-purejs": "^0.9.3",
     "mkdirp-classic": "*",
     "on-one": "*",
     "os-shim": "*",
     "pako": "^1.0.11",
-    "patch-package": "*",
     "queue-cb": "*",
     "readable-stream": "^2.3.7",
     "rimraf2": "*",
