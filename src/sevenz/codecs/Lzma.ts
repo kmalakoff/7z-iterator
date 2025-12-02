@@ -30,10 +30,12 @@ export function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: numb
   }
 
   var inStream = createInputStream(input, 0, input.length);
-  var outStream = createOutputStream();
 
   // Use -1 for unknown size (decoder will use end marker)
   var size = typeof unpackSize === 'number' ? unpackSize : -1;
+
+  // Pre-allocate output stream if size is known (memory optimization)
+  var outStream = createOutputStream(size > 0 ? size : undefined);
 
   var success = decoder.code(inStream, outStream, size);
   if (!success) {

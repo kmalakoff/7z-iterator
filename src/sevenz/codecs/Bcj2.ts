@@ -18,8 +18,11 @@ var kNumBitModelTotalBits = 11;
 var kBitModelTotal = 1 << kNumBitModelTotalBits;
 var kNumMoveBits = 5;
 
-// Number of probability models (256 for each byte value that can precede a branch)
-var kNumProbs = 256 + 2;
+// Number of probability models:
+// Index 0: conditional jumps (0x0F 0x80-0x8F)
+// Index 1: JMP (0xE9)
+// Indices 2-257: CALL (0xE8), indexed by previous byte
+var kNumProbs = 258;
 
 /**
  * Range decoder state
@@ -129,9 +132,11 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
     if (b === 0xe8 || b === 0xe9) {
       // CALL (0xE8) or JMP (0xE9)
       // Use range decoder to check if this should be processed
-      var probIndex = prevByte;
+      // Probability index: E8 uses 2 + prevByte, E9 uses 1
+      var probIndex = b === 0xe8 ? 2 + prevByte : 1;
       var isMatch = decodeBit(rd, probs, probIndex);
 
+      if (outPos >= outSize) break;
       output[outPos++] = b;
       ip++;
 
@@ -144,6 +149,9 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
           // Not enough data, copy remaining
           break;
         }
+
+        // Check if we have room for 4 address bytes
+        if (outPos + 4 > outSize) break;
 
         // Read as big-endian (BCJ2 stores addresses big-endian)
         var addr = (addrStream[addrPos] << 24) | (addrStream[addrPos + 1] << 16) | (addrStream[addrPos + 2] << 8) | addrStream[addrPos + 3];
@@ -170,6 +178,7 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
       }
     } else if (b === 0x0f && mainPos < mainStream.length) {
       // Potential conditional jump (0x0F 0x8x)
+      if (outPos >= outSize) break;
       output[outPos++] = b;
       ip++;
 
@@ -177,9 +186,11 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
       if ((b2 & 0xf0) === 0x80) {
         // Conditional jump
         mainPos++;
-        var probIndex2 = 256 + ((b2 >>> 4) & 1);
+        // Probability index 0 for conditional jumps (since b2 != 0xE8 and b2 != 0xE9)
+        var probIndex2 = 0;
         var isMatch2 = decodeBit(rd, probs, probIndex2);
 
+        if (outPos >= outSize) break;
         output[outPos++] = b2;
         ip++;
 
@@ -188,6 +199,9 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
           if (jumpPos + 4 > jumpStream.length) {
             break;
           }
+
+          // Check if we have room for 4 address bytes
+          if (outPos + 4 > outSize) break;
 
           var addr2 = (jumpStream[jumpPos] << 24) | (jumpStream[jumpPos + 1] << 16) | (jumpStream[jumpPos + 2] << 8) | jumpStream[jumpPos + 3];
           jumpPos += 4;
@@ -211,6 +225,7 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
       }
     } else {
       // Regular byte
+      if (outPos >= outSize) break;
       output[outPos++] = b;
       ip++;
       prevByte = b;

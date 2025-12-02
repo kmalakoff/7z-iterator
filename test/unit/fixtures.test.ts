@@ -2,16 +2,12 @@ import '../lib/polyfills.ts';
 import SevenZipIterator from '7z-iterator';
 import arrayFind from 'array-find';
 import assert from 'assert';
+import stringEndsWith from 'end-with';
 import fs from 'fs';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
 import rimraf2 from 'rimraf2';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
-
-// Node 0.8 compatible string endsWith
-function stringEndsWith(str: string, suffix: string): boolean {
-  return str.indexOf(suffix, str.length - suffix.length) !== -1;
-}
 
 describe('fixtures', () => {
   beforeEach((callback) => {

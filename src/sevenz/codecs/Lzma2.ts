@@ -15,6 +15,7 @@
 // across code() calls.
 
 // Import lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
+import { allocBufferUnsafe } from 'extract-base-iterator';
 import lzmajs from 'lzma-purejs';
 import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
@@ -52,16 +53,26 @@ function decodeDictionarySize(propByte: number): number {
  *
  * @param input - LZMA2 compressed data
  * @param properties - Properties buffer (1 byte: dictionary size)
- * @param _unpackSize - Unused (LZMA2 has internal size markers)
+ * @param unpackSize - Expected output size (used for pre-allocation to reduce memory)
  * @returns Decompressed data
  */
-export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: number): Buffer {
+export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: number): Buffer {
   if (!properties || properties.length < 1) {
     throw new Error('LZMA2 requires properties byte');
   }
 
   var dictSize = decodeDictionarySize(properties[0]);
-  var output: Buffer[] = [];
+
+  // Memory optimization: pre-allocate output buffer if size is known
+  // This avoids double-memory during Buffer.concat
+  var outputBuffer: Buffer | null = null;
+  var outputPos = 0;
+  var outputChunks: Buffer[] = [];
+
+  if (unpackSize && unpackSize > 0) {
+    outputBuffer = allocBufferUnsafe(unpackSize);
+  }
+
   var offset = 0;
 
   // LZMA decoder instance - reused across chunks
@@ -125,7 +136,12 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
       var uncompData = input.slice(offset, offset + uncompSize);
 
       // Copy uncompressed data to output
-      output.push(uncompData);
+      if (outputBuffer) {
+        uncompData.copy(outputBuffer, outputPos);
+        outputPos += uncompData.length;
+      } else {
+        outputChunks?.push(uncompData);
+      }
 
       // Also update the decoder's internal dictionary so subsequent LZMA chunks can reference it
       // The decoder needs to track this data for LZ77 back-references
@@ -215,7 +231,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
 
       // Decode LZMA chunk
       var inStream = createInputStream(input, offset, compSize);
-      var outStream = createOutputStream();
+      var outStream = createOutputStream(uncompSize2); // Pre-allocate for memory efficiency
 
       // Set solid mode based on control byte - this preserves state across code() calls
       decoder.setSolid(useSolidMode);
@@ -226,7 +242,13 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
         throw new Error('LZMA decompression failed');
       }
 
-      output.push(outStream.toBuffer());
+      var chunkOutput = outStream.toBuffer();
+      if (outputBuffer) {
+        chunkOutput.copy(outputBuffer, outputPos);
+        outputPos += chunkOutput.length;
+      } else {
+        outputChunks?.push(chunkOutput);
+      }
 
       offset += compSize;
     } else {
@@ -234,7 +256,12 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, _unpackSize?: nu
     }
   }
 
-  return Buffer.concat(output);
+  // Return pre-allocated buffer or concatenated chunks
+  if (outputBuffer) {
+    // Return only the used portion if we didn't fill the buffer
+    return outputPos < outputBuffer.length ? outputBuffer.slice(0, outputPos) : outputBuffer;
+  }
+  return Buffer.concat(outputChunks);
 }
 
 /**
