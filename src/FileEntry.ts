@@ -46,15 +46,16 @@ export default class SevenZipFileEntry extends FileEntry {
       return;
     }
 
-    try {
-      var stream = this.parser.getEntryStream(this.entry);
+    // Use callback-based async decompression
+    this.parser.getEntryStreamAsync(this.entry, (err, stream) => {
+      if (err) return callback(err);
+      if (!stream) return callback(new Error('No stream returned'));
+
       var res = stream.pipe(fs.createWriteStream(fullPath));
-      oo(res, ['error', 'end', 'close', 'finish'], (err?: Error) => {
-        err ? callback(err) : waitForAccess(fullPath, callback);
+      oo(res, ['error', 'end', 'close', 'finish'], (writeErr?: Error) => {
+        writeErr ? callback(writeErr) : waitForAccess(fullPath, callback);
       });
-    } catch (err) {
-      callback(err);
-    }
+    });
   }
 
   destroy() {

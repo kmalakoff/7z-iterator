@@ -73,6 +73,9 @@
     "pinkie-promise": "*",
     "ts-dev-stack": "*"
   },
+  "optionalDependencies": {
+    "lzma-native": "^8.0.6"
+  },
   "engines": {
     "node": ">=0.8"
   },

@@ -3,11 +3,15 @@
 
 import { allocBuffer, crc32 } from 'extract-base-iterator';
 import fs from 'fs';
+import oo from 'on-one';
 import { PassThrough, type Readable } from 'readable-stream';
 import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
 import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE } from './constants.ts';
 import { type FileInfo, parseEncodedHeader, parseHeaderContent, parseSignatureHeader, type SignatureHeader, type StreamsInfo } from './headers.ts';
 import { readNumber } from './NumberCodec.ts';
+
+// Callback type for async operations
+type DecompressCallback = (err: Error | null, data?: Buffer) => void;
 
 // Entry type for iteration
 export interface SevenZipEntry {
@@ -545,6 +549,78 @@ export class SevenZipParser {
   }
 
   /**
+   * Get a readable stream for an entry's content (callback-based async version)
+   * Uses streaming decompression for non-blocking I/O
+   */
+  getEntryStreamAsync(entry: SevenZipEntry, callback: (err: Error | null, stream?: Readable) => void): void {
+    if (!entry._hasStream || entry.type === 'directory') {
+      // Return empty stream for directories and empty files
+      var emptyStream = new PassThrough();
+      emptyStream.end();
+      callback(null, emptyStream);
+      return;
+    }
+
+    if (!this.streamsInfo) {
+      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
+      return;
+    }
+
+    // Get folder info
+    var folder = this.streamsInfo.folders[entry._folderIndex];
+    if (!folder) {
+      callback(createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER));
+      return;
+    }
+
+    // Check codec support
+    for (var i = 0; i < folder.coders.length; i++) {
+      var coder = folder.coders[i];
+      if (!isCodecSupported(coder.id)) {
+        var codecName = getCodecName(coder.id);
+        callback(createCodedError(`Unsupported codec: ${codecName}`, ErrorCode.UNSUPPORTED_CODEC));
+        return;
+      }
+    }
+
+    // Get decompressed data for this folder using async method
+    var folderIdx = entry._folderIndex;
+    var streamsInfo = this.streamsInfo;
+
+    this.getDecompressedFolderAsync(folderIdx, (err, data) => {
+      if (err) return callback(err);
+      if (!data) return callback(new Error('No data returned from decompression'));
+
+      // Calculate file offset within the decompressed block
+      var fileStart = 0;
+      for (var m = 0; m < entry._streamIndexInFolder; m++) {
+        var prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
+        fileStart += streamsInfo.unpackSizes[prevStreamGlobalIndex];
+      }
+
+      var fileSize = entry.size;
+
+      // Bounds check
+      if (fileStart + fileSize > data.length) {
+        return callback(createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED));
+      }
+
+      // Create a PassThrough stream with the file data
+      var outputStream = new PassThrough();
+      var fileData = data.slice(fileStart, fileStart + fileSize);
+      outputStream.end(fileData);
+
+      // Track extraction and release cache when all files from this folder are done
+      this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
+      if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
+        delete this.decompressedCache[folderIdx];
+      }
+
+      callback(null, outputStream);
+    });
+  }
+
+  /**
    * Check if a folder uses BCJ2 codec
    */
   private folderHasBcj2(folder: { coders: { id: number[] }[] }): boolean {
@@ -623,6 +699,120 @@ export class SevenZipParser {
     }
 
     return data2;
+  }
+
+  /**
+   * Get decompressed data for a folder using streaming (callback-based async)
+   * Uses createDecoder() streams for non-blocking decompression
+   */
+  private getDecompressedFolderAsync(folderIndex: number, callback: DecompressCallback): void {
+    var self = this;
+
+    // Check cache first
+    if (this.decompressedCache[folderIndex]) {
+      callback(null, this.decompressedCache[folderIndex]);
+      return;
+    }
+
+    if (!this.streamsInfo) {
+      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
+      return;
+    }
+
+    var folder = this.streamsInfo.folders[folderIndex];
+
+    // Check how many files remain in this folder
+    var filesInFolder = this.filesPerFolder[folderIndex] || 1;
+    var extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
+    var remainingFiles = filesInFolder - extractedFromFolder;
+    var shouldCache = remainingFiles > 1;
+
+    // BCJ2 requires special handling - use sync version for now
+    // TODO: Add async BCJ2 support
+    if (this.folderHasBcj2(folder)) {
+      try {
+        var data = this.decompressBcj2Folder(folderIndex);
+        if (shouldCache) {
+          this.decompressedCache[folderIndex] = data;
+        }
+        callback(null, data);
+      } catch (err) {
+        callback(err as Error);
+      }
+      return;
+    }
+
+    // Calculate packed data position
+    var packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+
+    // Find which pack stream this folder uses
+    var packStreamIndex = 0;
+    for (var j = 0; j < folderIndex; j++) {
+      packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
+    }
+
+    // Calculate position of this pack stream
+    for (var k = 0; k < packStreamIndex; k++) {
+      packPos += this.streamsInfo.packSizes[k];
+    }
+
+    var packSize = this.streamsInfo.packSizes[packStreamIndex];
+
+    // Read packed data
+    var packedData = this.source.read(packPos, packSize);
+
+    // Create decoder stream chain and decompress
+    var coders = folder.coders;
+    var unpackSizes = folder.unpackSizes;
+
+    // Helper to decompress through a single codec stream
+    function decompressWithStream(input: Buffer, coderIdx: number, cb: DecompressCallback): void {
+      var coderInfo = coders[coderIdx];
+      var codec = getCodec(coderInfo.id);
+      var decoder = codec.createDecoder(coderInfo.properties, unpackSizes[coderIdx]);
+
+      var chunks: Buffer[] = [];
+      var errorOccurred = false;
+
+      decoder.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+
+      oo(decoder, ['error', 'end', 'close', 'finish'], (err?: Error) => {
+        if (errorOccurred) return;
+        if (err) {
+          errorOccurred = true;
+          return cb(err);
+        }
+        cb(null, Buffer.concat(chunks));
+      });
+
+      // Write input data to decoder and signal end
+      decoder.end(input);
+    }
+
+    // Chain decompression through all codecs
+    function decompressChain(input: Buffer, idx: number): void {
+      if (idx >= coders.length) {
+        // All done - cache and return
+        if (shouldCache) {
+          self.decompressedCache[folderIndex] = input;
+        }
+        callback(null, input);
+        return;
+      }
+
+      decompressWithStream(input, idx, (err, output) => {
+        if (err) {
+          callback(err);
+          return;
+        }
+        decompressChain(output as Buffer, idx + 1);
+      });
+    }
+
+    // Start the chain
+    decompressChain(packedData, 0);
   }
 
   /**
