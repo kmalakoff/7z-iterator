@@ -11,6 +11,8 @@
 import '../lib/polyfills.ts';
 import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
+import stringEndsWith from 'end-with';
+import { allocBuffer } from 'extract-base-iterator';
 import fs from 'fs';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
@@ -84,7 +86,9 @@ describe('BCJ2 archives (large varints)', () => {
       );
     });
 
-    it('should extract file content from BCJ2 archive', (done) => {
+    it('should extract file content from BCJ2 archive', function (done) {
+      // Extracting 80MB file takes a while on older Node versions
+      this.timeout(120000);
       // This test validates that BCJ2-compressed file content can be extracted.
       // BCJ2 splits data into 4 streams (main + 3 call/jump streams) and requires
       // special decoding before LZMA decompression.
@@ -103,7 +107,7 @@ describe('BCJ2 archives (large varints)', () => {
           iterator.forEach(
             (entry, callback): undefined => {
               // Look for node.exe - this is the only BCJ2-compressed file
-              if (entry.path.endsWith('node.exe')) {
+              if (stringEndsWith(entry.path, 'node.exe')) {
                 extracted = true;
                 entry.create(targetDir, { strip: 1 }, callback);
               } else {
@@ -143,7 +147,7 @@ describe('BCJ2 archives (large varints)', () => {
 
                   // Read first few bytes and verify it's a PE executable (MZ header)
                   var fd = fs.openSync(exePath, 'r');
-                  var buf = Buffer.alloc(2);
+                  var buf = allocBuffer(2);
                   fs.readSync(fd, buf, 0, 2, 0);
                   fs.closeSync(fd);
 

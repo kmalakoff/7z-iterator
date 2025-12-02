@@ -103,8 +103,12 @@ export class SevenZipParser {
   private filesInfo: FileInfo[] = [];
   private entries: SevenZipEntry[] = [];
   private parsed = false;
-  // Cache for decompressed solid blocks (folderIndex -> decompressed data)
+  // Smart cache for decompressed solid blocks
+  // Only caches when multiple files share a block, releases when last file extracted
   private decompressedCache: { [key: number]: Buffer } = {};
+  // Track files per folder and how many have been extracted
+  private filesPerFolder: { [key: number]: number } = {};
+  private extractedPerFolder: { [key: number]: number } = {};
 
   constructor(source: ArchiveSource) {
     this.source = source;
@@ -377,6 +381,12 @@ export class SevenZipParser {
     // Use the properly parsed numUnpackStreamsPerFolder from the archive header
     var streamsPerFolder = this.streamsInfo.numUnpackStreamsPerFolder;
 
+    // Initialize files per folder count (for smart caching)
+    for (var f = 0; f < streamsPerFolder.length; f++) {
+      this.filesPerFolder[f] = streamsPerFolder[f];
+      this.extractedPerFolder[f] = 0;
+    }
+
     // Now build entries with proper folder/stream tracking
     var streamIndex = 0;
     var folderIndex = 0;
@@ -498,8 +508,9 @@ export class SevenZipParser {
       }
     }
 
-    // Get decompressed data for this folder (with caching for solid archives)
-    var data = this.getDecompressedFolder(entry._folderIndex);
+    // Get decompressed data for this folder (with smart caching)
+    var folderIdx = entry._folderIndex;
+    var data = this.getDecompressedFolder(folderIdx);
 
     // Calculate file offset within the decompressed block
     // For solid archives, multiple files are concatenated in the block
@@ -514,8 +525,21 @@ export class SevenZipParser {
 
     // Create a PassThrough stream with the file data
     var outputStream = new PassThrough();
+
+    // Bounds check to prevent "oob" error on older Node versions
+    if (fileStart + fileSize > data.length) {
+      throw createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED);
+    }
+
     var fileData = data.slice(fileStart, fileStart + fileSize);
     outputStream.end(fileData);
+
+    // Track extraction and release cache when all files from this folder are done
+    this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
+    if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
+      // All files from this folder extracted, release cache
+      delete this.decompressedCache[folderIdx];
+    }
 
     return outputStream;
   }
@@ -533,7 +557,8 @@ export class SevenZipParser {
   }
 
   /**
-   * Get decompressed data for a folder, with caching for solid archives
+   * Get decompressed data for a folder, with smart caching for solid archives
+   * Only caches when multiple files share a block, releases when last file extracted
    */
   private getDecompressedFolder(folderIndex: number): Buffer {
     // Check cache first
@@ -547,10 +572,19 @@ export class SevenZipParser {
 
     var folder = this.streamsInfo.folders[folderIndex];
 
+    // Check how many files remain in this folder
+    var filesInFolder = this.filesPerFolder[folderIndex] || 1;
+    var extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
+    var remainingFiles = filesInFolder - extractedFromFolder;
+    // Only cache if more than 1 file remains (including the current one being extracted)
+    var shouldCache = remainingFiles > 1;
+
     // Check if this folder uses BCJ2 (requires special multi-stream handling)
     if (this.folderHasBcj2(folder)) {
       var data = this.decompressBcj2Folder(folderIndex);
-      this.decompressedCache[folderIndex] = data;
+      if (shouldCache) {
+        this.decompressedCache[folderIndex] = data;
+      }
       return data;
     }
 
@@ -583,8 +617,10 @@ export class SevenZipParser {
       data2 = codec.decode(data2, coderInfo.properties, unpackSize);
     }
 
-    // Cache for solid archives (when multiple files share a folder)
-    this.decompressedCache[folderIndex] = data2;
+    // Cache only if more files remain in this folder
+    if (shouldCache) {
+      this.decompressedCache[folderIndex] = data2;
+    }
 
     return data2;
   }
@@ -741,6 +777,14 @@ export class SevenZipParser {
       bcj2OutputStart += folder.coders[co3].numOutStreams;
     }
     var bcj2UnpackSize = folder.unpackSizes[bcj2OutputStart];
+
+    // Memory optimization: Clear intermediate buffers to help GC
+    // These are no longer needed after bcj2Inputs is built
+    for (var key in coderOutputs) {
+      delete coderOutputs[key];
+    }
+    // Clear packStreams array (allows GC to free compressed data)
+    packStreams.length = 0;
 
     // Decode BCJ2
     return decodeBcj2Multi(bcj2Inputs, undefined, bcj2UnpackSize);
