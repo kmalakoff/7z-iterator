@@ -70,26 +70,32 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
       // For symlinks, the file content IS the symlink target path
       // Read the content to get the linkpath for SymbolicLinkEntry
       var parser = iterator.iterator.getParser();
-      var stream = parser.getEntryStream(entry);
-      var chunks: Buffer[] = [];
 
-      stream.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
-      });
-      stream.on('end', () => {
-        var linkpath = Buffer.concat(chunks).toString('utf8');
+      // Use callback-based async decompression
+      parser.getEntryStreamAsync(entry, (err, stream) => {
+        if (err) return nextCallback(err);
+        if (!stream) return nextCallback(new Error('No stream returned'));
 
-        var linkAttributes: LinkAttributes = {
-          path: attributes.path,
-          mtime: attributes.mtime,
-          mode: attributes.mode,
-          linkpath: linkpath,
-        };
+        var chunks: Buffer[] = [];
 
-        nextCallback(null, new SymbolicLinkEntry(linkAttributes));
-      });
-      stream.on('error', (err: Error) => {
-        nextCallback(err);
+        stream.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+        });
+        stream.on('end', () => {
+          var linkpath = Buffer.concat(chunks).toString('utf8');
+
+          var linkAttributes: LinkAttributes = {
+            path: attributes.path,
+            mtime: attributes.mtime,
+            mode: attributes.mode,
+            linkpath: linkpath,
+          };
+
+          nextCallback(null, new SymbolicLinkEntry(linkAttributes));
+        });
+        stream.on('error', (streamErr: Error) => {
+          nextCallback(streamErr);
+        });
       });
       return;
     }
