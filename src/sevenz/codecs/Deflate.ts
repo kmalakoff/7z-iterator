@@ -1,10 +1,9 @@
 // Deflate codec - standard zlib/zip compression
 // 7z uses raw deflate without zlib or gzip headers
 //
-// Uses pako for pure JavaScript decompression (works on all Node versions)
+// Uses native zlib on Node 0.11.12+, falls back to pako for older versions
 
-import { bufferFrom } from 'extract-base-iterator';
-import pako from 'pako';
+import { inflateRaw } from 'extract-base-iterator';
 import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 
@@ -17,9 +16,7 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  * @returns Decompressed data
  */
 export function decodeDeflate(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
-  // pako.inflateRaw returns Uint8Array, convert to Buffer
-  var result = pako.inflateRaw(input);
-  return bufferFrom(result);
+  return inflateRaw(input);
 }
 
 /**

@@ -79,23 +79,29 @@ LiteralDecoder.prototype.create = function(numPosBits, numPrevBits){
   this._numPosBits = numPosBits;
   this._posMask = (1 << numPosBits) - 1;
   this._numPrevBits = numPrevBits;
+  // Lazy allocation: only create coders array, allocate individual coders on demand
+  // This saves significant memory for archives that don't use all coder slots
   this._coders = [];
-  var count = 1 << (this._numPrevBits + this._numPosBits);
-  for (var i = 0; i < count; i++){
-    this._coders[i] = new LiteralDecoder.Decoder2();
-  }
+  this._coderCount = 1 << (this._numPrevBits + this._numPosBits);
 };
 
 LiteralDecoder.prototype.init = function(){
-  var count = 1 << (this._numPrevBits + this._numPosBits);
-  for (var i = 0; i < count; i++){
-    this._coders[i].init();
+  // Only init coders that have been allocated (lazy allocation support)
+  for (var i = 0; i < this._coders.length; i++){
+    if (this._coders[i]) {
+      this._coders[i].init();
+    }
   }
 };
 
 LiteralDecoder.prototype.getDecoder = function(pos, prevByte){
-  return this._coders[((pos & this._posMask) << this._numPrevBits) +
-                      ((prevByte & 0xff) >>> (8 - this._numPrevBits))];
+  var index = ((pos & this._posMask) << this._numPrevBits) +
+              ((prevByte & 0xff) >>> (8 - this._numPrevBits));
+  // Lazy allocation: create coder on first access
+  if (!this._coders[index]) {
+    this._coders[index] = new LiteralDecoder.Decoder2();
+  }
+  return this._coders[index];
 };
 
 var Decoder = function(){
