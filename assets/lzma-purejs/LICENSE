@@ -1,0 +1,11 @@
+BSD License
+
+lzma-purejs - Pure JavaScript LZMA de/compression
+https://github.com/cscott/lzma-purejs
+
+Copyright (c) Gary Linscott, Juan Mellado, C. Scott Ananian
+
+This vendored copy includes modifications to support LZMA2 solid mode
+(setSolid method for state preservation across chunks).
+
+Original package: https://www.npmjs.com/package/lzma-purejs

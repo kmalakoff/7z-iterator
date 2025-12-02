@@ -1,13 +1,18 @@
-// LZMA codec - uses lzma-purejs for raw LZMA decompression
+import Module from 'module';
+
+const _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
+
+// LZMA codec - uses vendored lzma-purejs for raw LZMA decompression
 // LZMA properties in 7z are 5 bytes: 1 byte lc/lp/pb + 4 bytes dictionary size (little-endian)
 
-// Import lzma-purejs - provides raw LZMA decoder
-import lzmajs from 'lzma-purejs';
 import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 import { createInputStream, createOutputStream } from './streams.ts';
 
-var LzmaDecoder = lzmajs.LZMA.Decoder;
+// Import vendored lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
+// Path accounts for build output in dist/esm/sevenz/codecs/
+const { LZMA } = _require('../../../../assets/lzma-purejs');
+const LzmaDecoder = LZMA.Decoder;
 
 /**
  * Decode LZMA compressed data to buffer
