@@ -1,18 +1,15 @@
 import BaseIterator from 'extract-base-iterator';
 import fs from 'fs';
-import os from 'os';
-import osShim from 'os-shim';
 import path from 'path';
 import Queue from 'queue-cb';
 import shortHash from 'short-hash';
 import tempSuffix from 'temp-suffix';
+import { tmpdir } from './compat.ts';
 import Lock from './lib/Lock.ts';
 import streamToSource, { type SourceResult } from './lib/streamToSource.ts';
 import nextEntry from './nextEntry.ts';
 import { setPassword } from './sevenz/codecs/index.ts';
 import { type ArchiveSource, FileSource, type SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
-
-var tmpdir = os.tmpdir || osShim.tmpdir;
 
 import type { ExtractOptions, LockT, SevenZipFileIterator } from './types.ts';
 

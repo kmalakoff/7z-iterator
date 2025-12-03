@@ -63,8 +63,6 @@
     "@biomejs/biome": "*",
     "@types/mocha": "*",
     "@types/node": "*",
-    "array-find": "^1.0.0",
-    "end-with": "^1.0.2",
     "fs-iterator": "*",
     "fs-stats-spys": "*",
     "get-remote": "^2.2.2",

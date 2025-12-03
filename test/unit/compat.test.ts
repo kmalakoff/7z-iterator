@@ -1,4 +1,3 @@
-import '../lib/polyfills.ts';
 import assert from 'assert';
 import { allocBuffer, allocBufferUnsafe, bufferCompare, bufferEquals, bufferFrom, readUInt64LE, writeUInt64LE } from 'extract-base-iterator';
 
