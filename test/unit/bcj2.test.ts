@@ -8,15 +8,14 @@
  * Uses Node.js Windows distribution as a real-world BCJ2 test case.
  * The archive is downloaded and cached in .tmp/fixtures on first run.
  */
-import '../lib/polyfills.ts';
 import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
-import stringEndsWith from 'end-with';
 import { allocBuffer } from 'extract-base-iterator';
 import fs from 'fs';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
 import rimraf2 from 'rimraf2';
+import { stringEndsWith } from '../lib/compat.ts';
 import { ensureFixture, getFixturePath } from '../lib/download.ts';
 
 // Node.js Windows x64 7z archive - uses LZMA2:26 LZMA:20 BCJ2 codecs

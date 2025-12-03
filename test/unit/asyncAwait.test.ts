@@ -1,5 +1,3 @@
-import '../lib/polyfills.ts';
-
 import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
 import mkdirp from 'mkdirp-classic';

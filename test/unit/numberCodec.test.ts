@@ -1,4 +1,3 @@
-import '../lib/polyfills.ts';
 import assert from 'assert';
 import { bufferFrom } from 'extract-base-iterator';
 import { encodedSize, readDefinedVector, readNumber, readNumberArray } from '../../src/sevenz/NumberCodec.ts';

@@ -1,4 +1,3 @@
-import '../lib/polyfills.ts';
 import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
 import fs from 'fs';
