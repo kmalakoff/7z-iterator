@@ -4,8 +4,19 @@
 import { allocBuffer, crc32 } from 'extract-base-iterator';
 import fs from 'fs';
 import oo from 'on-one';
-import { PassThrough, type Readable } from 'readable-stream';
+import Stream from 'stream';
 import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
+
+// Use native streams when available, readable-stream only for Node 0.x
+const major = +process.versions.node.split('.')[0];
+let PassThrough: typeof Stream.PassThrough;
+if (major > 0) {
+  PassThrough = Stream.PassThrough;
+} else {
+  PassThrough = require('readable-stream').PassThrough;
+}
+type Readable = Stream.Readable;
+
 import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE } from './constants.ts';
 import { type FileInfo, parseEncodedHeader, parseHeaderContent, parseSignatureHeader, type SignatureHeader, type StreamsInfo } from './headers.ts';
 import { readNumber } from './NumberCodec.ts';

@@ -1,4 +1,3 @@
-import '../lib/polyfills.ts';
 import assert from 'assert';
 import { allocBuffer, bufferFrom, crc32, crc32Region, verifyCrc32 } from 'extract-base-iterator';
 
