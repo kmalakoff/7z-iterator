@@ -40,7 +40,7 @@
   ],
   "scripts": {
     "build": "tsds build",
-    "format": "biome check --write --unsafe",
+    "format": "tsds format",
     "prepublishOnly": "tsds validate",
     "test": "tsds test:node --no-timeouts",
     "test:engines": "nvu engines tsds test:node --no-timeouts",
@@ -61,16 +61,16 @@
     "temp-suffix": "*"
   },
   "devDependencies": {
-    "@biomejs/biome": "*",
     "@types/mocha": "*",
     "@types/node": "*",
     "fs-iterator": "*",
     "fs-stats-spys": "*",
-    "get-remote": "^2.2.4",
+    "get-remote": "^2.2.5",
     "lzma-native": "^8.0.6",
     "node-version-use": "*",
     "pinkie-promise": "*",
-    "ts-dev-stack": "*"
+    "ts-dev-stack": "*",
+    "tsds-config": "*"
   },
   "optionalDependencies": {
     "lzma-native": "^8.0.6"
