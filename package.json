@@ -65,7 +65,7 @@
     "@types/node": "*",
     "fs-iterator": "*",
     "fs-stats-spys": "*",
-    "get-remote": "^2.2.7",
+    "get-remote": "^2.2.8",
     "lzma-native": "^8.0.6",
     "node-version-use": "*",
     "pinkie-promise": "*",
