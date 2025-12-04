@@ -54,7 +54,7 @@
     "on-one": "*",
     "os-shim": "*",
     "queue-cb": "*",
-    "readable-stream": "^2.3.7",
+    "readable-stream": "^2.3.8",
     "rimraf2": "*",
     "seek-bzip": "^2.0.0",
     "short-hash": "*",
