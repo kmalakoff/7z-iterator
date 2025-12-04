@@ -1,6 +1,6 @@
 import BaseIterator from 'extract-base-iterator';
 import fs from 'fs';
-import rimraf2 from 'rimraf2';
+import { rmSync } from 'fs-remove-compat';
 
 export default class Lock {
   private count = 1;
@@ -34,7 +34,7 @@ export default class Lock {
 
     if (this.tempPath) {
       try {
-        rimraf2.sync(this.tempPath, { disableGlob: true });
+        rmSync(this.tempPath);
       } catch (_err) {
         /* empty */
       }

@@ -12,9 +12,9 @@ import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
 import { allocBuffer } from 'extract-base-iterator';
 import fs from 'fs';
+import { safeRm } from 'fs-remove-compat';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
-import rimraf2 from 'rimraf2';
 import { stringEndsWith } from '../lib/compat.ts';
 import { ensureFixture, getFixturePath } from '../lib/download.ts';
 
@@ -97,7 +97,7 @@ describe('BCJ2 archives (large varints)', () => {
       var targetDir = path.join(path.dirname(filepath), 'bcj2-extract-test');
 
       // Clean up before test
-      rimraf2(targetDir, { disableGlob: true }, () => {
+      safeRm(targetDir, () => {
         mkdirp(targetDir, (err) => {
           if (err) return done(err);
 
@@ -117,14 +117,14 @@ describe('BCJ2 archives (large varints)', () => {
             (err) => {
               if (err) {
                 // Clean up and report error
-                rimraf2(targetDir, { disableGlob: true }, () => {
+                safeRm(targetDir, () => {
                   done(new Error(`BCJ2 file extraction failed: ${err.message}`));
                 });
                 return;
               }
 
               if (!extracted) {
-                rimraf2(targetDir, { disableGlob: true }, () => {
+                safeRm(targetDir, () => {
                   done(new Error('node.exe file not found in archive'));
                 });
                 return;
@@ -134,7 +134,7 @@ describe('BCJ2 archives (large varints)', () => {
               var exePath = path.join(targetDir, 'node.exe');
               fs.stat(exePath, (err, stats) => {
                 if (err) {
-                  rimraf2(targetDir, { disableGlob: true }, () => {
+                  safeRm(targetDir, () => {
                     done(new Error(`Extracted node.exe file not found: ${err.message}`));
                   });
                   return;
@@ -154,11 +154,11 @@ describe('BCJ2 archives (large varints)', () => {
                   assert.equal(buf[1], 0x5a, 'Second byte should be Z');
 
                   // Clean up after successful verification
-                  rimraf2(targetDir, { disableGlob: true }, () => {
+                  safeRm(targetDir, () => {
                     done();
                   });
                 } catch (e) {
-                  rimraf2(targetDir, { disableGlob: true }, () => {
+                  safeRm(targetDir, () => {
                     done(e);
                   });
                 }
