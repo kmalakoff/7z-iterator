@@ -1,6 +1,6 @@
 {
   "name": "7z-iterator",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Extract contents from 7z archives using an iterator API. Pure JavaScript, works on Node.js 0.8+",
   "keywords": [
     "extract",
