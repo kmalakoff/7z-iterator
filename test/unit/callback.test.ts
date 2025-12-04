@@ -1,9 +1,9 @@
 import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
 import fs from 'fs';
+import { safeRm } from 'fs-remove-compat';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
-import rimraf2 from 'rimraf2';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
 import validateFiles from '../lib/validateFiles.ts';
 
@@ -20,13 +20,13 @@ function extract(iterator, dest, options, callback) {
 describe('callback', () => {
   beforeEach((callback) => {
     // Clean only the target directory, not the entire .tmp (preserve downloaded fixtures cache)
-    rimraf2(TARGET, { disableGlob: true }, () => {
+    safeRm(TARGET, () => {
       mkdirp(TARGET, callback);
     });
   });
 
   afterEach((callback) => {
-    rimraf2(TARGET, { disableGlob: true }, callback);
+    safeRm(TARGET, callback);
   });
 
   describe('happy path', () => {

@@ -49,13 +49,13 @@
   "dependencies": {
     "call-once-fn": "*",
     "extract-base-iterator": "*",
+    "fs-remove-compat": "*",
     "lodash.compact": "*",
     "mkdirp-classic": "*",
     "on-one": "*",
     "os-shim": "*",
     "queue-cb": "*",
     "readable-stream": "^2.3.8",
-    "rimraf2": "*",
     "seek-bzip": "^2.0.0",
     "short-hash": "*",
     "temp-suffix": "*"
@@ -65,7 +65,7 @@
     "@types/node": "*",
     "fs-iterator": "*",
     "fs-stats-spys": "*",
-    "get-remote": "^2.2.6",
+    "get-remote": "^2.2.7",
     "lzma-native": "^8.0.6",
     "node-version-use": "*",
     "pinkie-promise": "*",
