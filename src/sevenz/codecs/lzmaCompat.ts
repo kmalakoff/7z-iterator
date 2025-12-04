@@ -38,25 +38,20 @@ export var hasNativeLzma = _hasNativeLzmaLib;
  * Create a native LZMA2 decoder stream
  * Returns a Transform stream that decodes LZMA2 data
  *
- * @param dictSize - Dictionary size
- * @returns Transform stream for decoding, or null if native not available
+ * Note: Native LZMA2 decoder disabled due to LZMA_DATA_ERROR issues with
+ * lzma-native's rawDecoder for LZMA2. The native decoder fails partway through
+ * decompression on certain archives (e.g., Node.js Windows releases), reporting
+ * "Data is corrupt" even when the data is valid. Falls back to lzma-purejs
+ * which handles all LZMA2 streams correctly.
+ *
+ * @param _dictSize - Dictionary size (unused, native disabled)
+ * @returns null - always falls back to pure JS decoder
  */
-export function createNativeLzma2Decoder(dictSize?: number): Transform | null {
-  if (!lzmaNative) {
-    return null;
-  }
-
-  var filterOpts: { id: string; dict_size?: number } = {
-    id: lzmaNative.FILTER_LZMA2,
-  };
-
-  if (dictSize !== undefined) {
-    filterOpts.dict_size = dictSize;
-  }
-
-  return lzmaNative.createStream('rawDecoder', {
-    filters: [filterOpts],
-  }) as unknown as Transform;
+export function createNativeLzma2Decoder(_dictSize?: number): Transform | null {
+  // Native LZMA2 disabled - lzma-native's rawDecoder has issues with certain
+  // LZMA2 streams (LZMA_DATA_ERROR: Data is corrupt), even when data is valid.
+  // The pure JS lzma-purejs implementation handles all streams correctly.
+  return null;
 }
 
 /**

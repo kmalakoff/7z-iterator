@@ -32,6 +32,7 @@
     "./package.json": "./package.json"
   },
   "main": "dist/cjs/index.js",
+  "source": "src/index.ts",
   "types": "dist/cjs/index.d.ts",
   "files": [
     "dist",
@@ -65,7 +66,7 @@
     "@types/node": "*",
     "fs-iterator": "*",
     "fs-stats-spys": "*",
-    "get-remote": "^2.2.2",
+    "get-remote": "^2.2.4",
     "lzma-native": "^8.0.6",
     "node-version-use": "*",
     "pinkie-promise": "*",
@@ -76,8 +77,5 @@
   },
   "engines": {
     "node": ">=0.8"
-  },
-  "tsds": {
-    "source": "src/index.ts"
   }
 }
