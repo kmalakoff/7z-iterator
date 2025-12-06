@@ -40,6 +40,7 @@ export interface SevenZipEntry {
   _streamIndex: number; // Global stream index
   _streamIndexInFolder: number; // Stream index within folder (for solid archives)
   _hasStream: boolean;
+  _crc?: number; // Expected CRC32 for this file (if present in archive)
 }
 
 /**
@@ -419,6 +420,10 @@ export class SevenZipParser {
 
       var entry = this.createEntry(fileInfo, size, folderIndex, streamInFolder);
       entry._streamIndex = streamIndex;
+      // Set CRC if available
+      if (fileInfo.hasStream && this.streamsInfo.unpackCRCs && this.streamsInfo.unpackCRCs[streamIndex] !== undefined) {
+        entry._crc = this.streamsInfo.unpackCRCs[streamIndex];
+      }
       this.entries.push(entry);
 
       // Advance stream tracking for files with streams
@@ -547,6 +552,15 @@ export class SevenZipParser {
     }
 
     var fileData = data.slice(fileStart, fileStart + fileSize);
+
+    // Verify CRC if present
+    if (entry._crc !== undefined) {
+      var actualCRC = crc32(fileData);
+      if (actualCRC !== entry._crc) {
+        throw createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH);
+      }
+    }
+
     outputStream.end(fileData);
 
     // Track extraction and release cache when all files from this folder are done
@@ -619,6 +633,15 @@ export class SevenZipParser {
       // Create a PassThrough stream with the file data
       var outputStream = new PassThrough();
       var fileData = data.slice(fileStart, fileStart + fileSize);
+
+      // Verify CRC if present
+      if (entry._crc !== undefined) {
+        var actualCRC = crc32(fileData);
+        if (actualCRC !== entry._crc) {
+          return callback(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH));
+        }
+      }
+
       outputStream.end(fileData);
 
       // Track extraction and release cache when all files from this folder are done

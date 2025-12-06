@@ -29,7 +29,7 @@ describe('fixtures', () => {
         },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
           // Empty archive has 1 empty directory
@@ -50,7 +50,7 @@ describe('fixtures', () => {
         { callbacks: true },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
           done();
@@ -69,7 +69,7 @@ describe('fixtures', () => {
         },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
           // Should have dirs and files with unicode names
@@ -93,7 +93,7 @@ describe('fixtures', () => {
         { callbacks: true },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
           done();
@@ -452,7 +452,7 @@ describe('fixtures', () => {
         },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
 
@@ -485,7 +485,7 @@ describe('fixtures', () => {
         { callbacks: true },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
 
@@ -516,7 +516,7 @@ describe('fixtures', () => {
         },
         (err) => {
           if (err) {
-            done(err.message);
+            done(err);
             return;
           }
 
