@@ -88,8 +88,8 @@ export class FileSource implements ArchiveSource {
   }
 
   read(position: number, length: number): Buffer {
-    var buf = allocBuffer(length);
-    var bytesRead = fs.readSync(this.fd, buf, 0, length, position);
+    const buf = allocBuffer(length);
+    const bytesRead = fs.readSync(this.fd, buf, 0, length, position);
     if (bytesRead < length) {
       return buf.slice(0, bytesRead);
     }
@@ -138,7 +138,7 @@ export class SevenZipParser {
     if (this.parsed) return;
 
     // Read signature header
-    var sigBuf = this.source.read(0, SIGNATURE_HEADER_SIZE);
+    const sigBuf = this.source.read(0, SIGNATURE_HEADER_SIZE);
     if (sigBuf.length < SIGNATURE_HEADER_SIZE) {
       throw createCodedError('Archive too small', ErrorCode.TRUNCATED_ARCHIVE);
     }
@@ -146,8 +146,8 @@ export class SevenZipParser {
     this.signature = parseSignatureHeader(sigBuf);
 
     // Read encoded header
-    var headerOffset = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
-    var headerBuf = this.source.read(headerOffset, this.signature.nextHeaderSize);
+    const headerOffset = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
+    const headerBuf = this.source.read(headerOffset, this.signature.nextHeaderSize);
 
     if (headerBuf.length < this.signature.nextHeaderSize) {
       throw createCodedError('Truncated header', ErrorCode.TRUNCATED_ARCHIVE);
@@ -155,11 +155,11 @@ export class SevenZipParser {
 
     // Parse encoded header (may need decompression)
     try {
-      var headerResult = parseEncodedHeader(headerBuf, this.signature.nextHeaderCRC);
+      const headerResult = parseEncodedHeader(headerBuf, this.signature.nextHeaderCRC);
       this.streamsInfo = headerResult.streamsInfo || null;
       this.filesInfo = headerResult.filesInfo;
     } catch (err: unknown) {
-      var codedErr = err as CodedError;
+      const codedErr = err as CodedError;
       if (codedErr && codedErr.code === ErrorCode.COMPRESSED_HEADER) {
         // Header is compressed - need to decompress first
         this.handleCompressedHeader(headerBuf);
@@ -178,10 +178,10 @@ export class SevenZipParser {
    */
   private handleCompressedHeader(headerBuf: Buffer): void {
     // Parse the encoded header info to get decompression parameters
-    var offset = 1; // Skip kEncodedHeader byte
+    let offset = 1; // Skip kEncodedHeader byte
 
     // Should have StreamsInfo for the header itself
-    var propertyId = headerBuf[offset++];
+    const propertyId = headerBuf[offset++];
     if (propertyId !== PropertyId.kMainStreamsInfo && propertyId !== PropertyId.kPackInfo) {
       throw createCodedError('Expected StreamsInfo in encoded header', ErrorCode.CORRUPT_HEADER);
     }
@@ -190,25 +190,25 @@ export class SevenZipParser {
     // This tells us how to decompress the actual header
 
     // Read pack info from the encoded header structure
-    var packInfoResult = this.parseEncodedHeaderStreams(headerBuf, 1);
+    const packInfoResult = this.parseEncodedHeaderStreams(headerBuf, 1);
 
     // Calculate compressed header position
     // For simple archives: header is at SIGNATURE_HEADER_SIZE + packPos
     // For BCJ2/complex archives: header may be at the END of pack data area
     // The pack data area ends at nextHeaderOffset (where encoded header starts)
-    var compressedStart = SIGNATURE_HEADER_SIZE + packInfoResult.packPos;
-    var compressedData = this.source.read(compressedStart, packInfoResult.packSize);
+    const compressedStart = SIGNATURE_HEADER_SIZE + packInfoResult.packPos;
+    const compressedData = this.source.read(compressedStart, packInfoResult.packSize);
 
     // Decompress using the specified codec
-    var codec = getCodec(packInfoResult.codecId);
-    var decompressedHeader: Buffer | null = null;
+    const codec = getCodec(packInfoResult.codecId);
+    let decompressedHeader: Buffer | null = null;
 
     // Try decompressing from the calculated position first
     try {
       decompressedHeader = codec.decode(compressedData, packInfoResult.properties, packInfoResult.unpackSize);
       // Verify CRC if present
       if (packInfoResult.unpackCRC !== undefined) {
-        var actualCRC = crc32(decompressedHeader);
+        const actualCRC = crc32(decompressedHeader);
         if (actualCRC !== packInfoResult.unpackCRC) {
           decompressedHeader = null; // CRC mismatch, need to search
         }
@@ -220,23 +220,23 @@ export class SevenZipParser {
     // If initial decompression failed, search for the correct position as a fallback
     // This handles edge cases where packPos doesn't point directly to header pack data
     if (decompressedHeader === null && this.signature) {
-      var packAreaEnd = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
-      var searchStart = packAreaEnd - packInfoResult.packSize;
-      var searchEnd = Math.max(SIGNATURE_HEADER_SIZE, compressedStart - 100000);
+      const packAreaEnd = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
+      const searchStart = packAreaEnd - packInfoResult.packSize;
+      const searchEnd = Math.max(SIGNATURE_HEADER_SIZE, compressedStart - 100000);
 
       // Scan for LZMA data starting with 0x00 (range coder init)
       // Try each candidate and validate with CRC
-      var scanChunkSize = 4096;
-      searchLoop: for (var chunkStart = searchStart; chunkStart >= searchEnd; chunkStart -= scanChunkSize) {
-        var chunk = this.source.read(chunkStart, scanChunkSize + packInfoResult.packSize);
-        for (var i = 0; i < Math.min(chunk.length, scanChunkSize); i++) {
+      const scanChunkSize = 4096;
+      searchLoop: for (let chunkStart = searchStart; chunkStart >= searchEnd; chunkStart -= scanChunkSize) {
+        const chunk = this.source.read(chunkStart, scanChunkSize + packInfoResult.packSize);
+        for (let i = 0; i < Math.min(chunk.length, scanChunkSize); i++) {
           if (chunk[i] === 0x00) {
-            var candidateData = chunk.subarray(i, i + packInfoResult.packSize);
+            const candidateData = chunk.subarray(i, i + packInfoResult.packSize);
             if (candidateData.length === packInfoResult.packSize) {
               try {
-                var candidateDecompressed = codec.decode(candidateData, packInfoResult.properties, packInfoResult.unpackSize);
+                const candidateDecompressed = codec.decode(candidateData, packInfoResult.properties, packInfoResult.unpackSize);
                 if (packInfoResult.unpackCRC !== undefined) {
-                  var candCRC = crc32(candidateDecompressed);
+                  const candCRC = crc32(candidateDecompressed);
                   if (candCRC === packInfoResult.unpackCRC) {
                     decompressedHeader = candidateDecompressed;
                     break searchLoop;
@@ -260,14 +260,14 @@ export class SevenZipParser {
 
     // Now parse the decompressed header
     // It should start with kHeader
-    var decompOffset = 0;
-    var headerId = decompressedHeader[decompOffset++];
+    let decompOffset = 0;
+    const headerId = decompressedHeader[decompOffset++];
     if (headerId !== PropertyId.kHeader) {
       throw createCodedError('Expected kHeader in decompressed header', ErrorCode.CORRUPT_HEADER);
     }
 
     // Parse the decompressed header using shared function from headers.ts
-    var result = parseHeaderContent(decompressedHeader, decompOffset);
+    const result = parseHeaderContent(decompressedHeader, decompOffset);
     this.streamsInfo = result.streamsInfo || null;
     this.filesInfo = result.filesInfo;
   }
@@ -288,15 +288,15 @@ export class SevenZipParser {
     unpackCRC?: number;
   } {
     // This is a simplified parser for the encoded header's own streams info
-    var packPos = 0;
-    var packSize = 0;
-    var unpackSize = 0;
-    var codecId: number[] = [];
-    var properties: Buffer | undefined;
-    var unpackCRC: number | undefined;
+    let packPos = 0;
+    let packSize = 0;
+    let unpackSize = 0;
+    let codecId: number[] = [];
+    let properties: Buffer | undefined;
+    let unpackCRC: number | undefined;
 
     while (offset < buf.length) {
-      var propertyId = buf[offset++];
+      const propertyId = buf[offset++];
 
       if (propertyId === PropertyId.kEnd) {
         break;
@@ -304,18 +304,18 @@ export class SevenZipParser {
 
       switch (propertyId) {
         case PropertyId.kPackInfo: {
-          var packPosResult = readNumber(buf, offset);
+          const packPosResult = readNumber(buf, offset);
           packPos = packPosResult.value;
           offset += packPosResult.bytesRead;
 
-          var numPackResult = readNumber(buf, offset);
+          const numPackResult = readNumber(buf, offset);
           offset += numPackResult.bytesRead;
 
           // Read until kEnd
           while (buf[offset] !== PropertyId.kEnd) {
             if (buf[offset] === PropertyId.kSize) {
               offset++;
-              var sizeResult = readNumber(buf, offset);
+              const sizeResult = readNumber(buf, offset);
               packSize = sizeResult.value;
               offset += sizeResult.bytesRead;
             } else {
@@ -331,25 +331,25 @@ export class SevenZipParser {
           while (offset < buf.length && buf[offset] !== PropertyId.kEnd) {
             if (buf[offset] === PropertyId.kFolder) {
               offset++;
-              var numFoldersResult = readNumber(buf, offset);
+              const numFoldersResult = readNumber(buf, offset);
               offset += numFoldersResult.bytesRead;
               offset++; // external flag
 
               // Parse coder
-              var numCodersResult = readNumber(buf, offset);
+              const numCodersResult = readNumber(buf, offset);
               offset += numCodersResult.bytesRead;
 
-              var flags = buf[offset++];
-              var idSize = flags & 0x0f;
-              var hasAttributes = (flags & 0x20) !== 0;
+              const flags = buf[offset++];
+              const idSize = flags & 0x0f;
+              const hasAttributes = (flags & 0x20) !== 0;
 
               codecId = [];
-              for (var i = 0; i < idSize; i++) {
+              for (let i = 0; i < idSize; i++) {
                 codecId.push(buf[offset++]);
               }
 
               if (hasAttributes) {
-                var propsLenResult = readNumber(buf, offset);
+                const propsLenResult = readNumber(buf, offset);
                 offset += propsLenResult.bytesRead;
                 properties = buf.slice(offset, offset + propsLenResult.value);
                 offset += propsLenResult.value;
@@ -357,12 +357,12 @@ export class SevenZipParser {
             } else if (buf[offset] === PropertyId.kCodersUnpackSize) {
               offset++;
               // Read unpack size - needed for LZMA decoder
-              var unpackSizeResult = readNumber(buf, offset);
+              const unpackSizeResult = readNumber(buf, offset);
               unpackSize = unpackSizeResult.value;
               offset += unpackSizeResult.bytesRead;
             } else if (buf[offset] === PropertyId.kCRC) {
               offset++;
-              var allDefined = buf[offset++];
+              const allDefined = buf[offset++];
               if (allDefined) {
                 unpackCRC = buf.readUInt32LE(offset);
                 offset += 4;
@@ -387,38 +387,38 @@ export class SevenZipParser {
 
     if (!this.streamsInfo) {
       // No streams info - just create entries from file info
-      for (var i = 0; i < this.filesInfo.length; i++) {
-        var file = this.filesInfo[i];
+      for (let i = 0; i < this.filesInfo.length; i++) {
+        const file = this.filesInfo[i];
         this.entries.push(this.createEntry(file, 0, 0, 0));
       }
       return;
     }
 
     // Use the properly parsed numUnpackStreamsPerFolder from the archive header
-    var streamsPerFolder = this.streamsInfo.numUnpackStreamsPerFolder;
+    const streamsPerFolder = this.streamsInfo.numUnpackStreamsPerFolder;
 
     // Initialize files per folder count (for smart caching)
-    for (var f = 0; f < streamsPerFolder.length; f++) {
+    for (let f = 0; f < streamsPerFolder.length; f++) {
       this.filesPerFolder[f] = streamsPerFolder[f];
       this.extractedPerFolder[f] = 0;
     }
 
     // Now build entries with proper folder/stream tracking
-    var streamIndex = 0;
-    var folderIndex = 0;
-    var streamInFolder = 0;
-    var folderStreamCount = streamsPerFolder[0] || 0;
+    let streamIndex = 0;
+    let folderIndex = 0;
+    let streamInFolder = 0;
+    let folderStreamCount = streamsPerFolder[0] || 0;
 
-    for (var j = 0; j < this.filesInfo.length; j++) {
-      var fileInfo = this.filesInfo[j];
+    for (let j = 0; j < this.filesInfo.length; j++) {
+      const fileInfo = this.filesInfo[j];
 
       // Get size from unpackSizes for files with streams
-      var size = 0;
+      let size = 0;
       if (fileInfo.hasStream && streamIndex < this.streamsInfo.unpackSizes.length) {
         size = this.streamsInfo.unpackSizes[streamIndex];
       }
 
-      var entry = this.createEntry(fileInfo, size, folderIndex, streamInFolder);
+      const entry = this.createEntry(fileInfo, size, folderIndex, streamInFolder);
       entry._streamIndex = streamIndex;
       // Set CRC if available
       if (fileInfo.hasStream && this.streamsInfo.unpackCRCs && this.streamsInfo.unpackCRCs[streamIndex] !== undefined) {
@@ -448,13 +448,13 @@ export class SevenZipParser {
     // Determine entry type
     // Note: 7z format doesn't natively support symlinks. p7zip with -snl stores
     // symlinks as regular files with the target path as content.
-    var type: 'file' | 'directory' | 'link' = 'file';
+    let type: 'file' | 'directory' | 'link' = 'file';
     if (file.isDirectory) {
       type = 'directory';
     }
 
     // Calculate mode from Windows attributes
-    var mode: number | undefined;
+    let mode: number | undefined;
     if (file.attributes !== undefined) {
       // Check for Unix extension bit
       if ((file.attributes & FileAttribute.UNIX_EXTENSION) !== 0) {
@@ -504,7 +504,7 @@ export class SevenZipParser {
   getEntryStream(entry: SevenZipEntry): Readable {
     if (!entry._hasStream || entry.type === 'directory') {
       // Return empty stream for directories and empty files
-      var emptyStream = new PassThrough();
+      const emptyStream = new PassThrough();
       emptyStream.end();
       return emptyStream;
     }
@@ -514,48 +514,48 @@ export class SevenZipParser {
     }
 
     // Get folder info
-    var folder = this.streamsInfo.folders[entry._folderIndex];
+    const folder = this.streamsInfo.folders[entry._folderIndex];
     if (!folder) {
       throw createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER);
     }
 
     // Check codec support
-    for (var i = 0; i < folder.coders.length; i++) {
-      var coder = folder.coders[i];
+    for (let i = 0; i < folder.coders.length; i++) {
+      const coder = folder.coders[i];
       if (!isCodecSupported(coder.id)) {
-        var codecName = getCodecName(coder.id);
+        const codecName = getCodecName(coder.id);
         throw createCodedError(`Unsupported codec: ${codecName}`, ErrorCode.UNSUPPORTED_CODEC);
       }
     }
 
     // Get decompressed data for this folder (with smart caching)
-    var folderIdx = entry._folderIndex;
-    var data = this.getDecompressedFolder(folderIdx);
+    const folderIdx = entry._folderIndex;
+    const data = this.getDecompressedFolder(folderIdx);
 
     // Calculate file offset within the decompressed block
     // For solid archives, multiple files are concatenated in the block
-    var fileStart = 0;
-    for (var m = 0; m < entry._streamIndexInFolder; m++) {
+    let fileStart = 0;
+    for (let m = 0; m < entry._streamIndexInFolder; m++) {
       // Sum sizes of all streams before this one in the folder
-      var prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
+      const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
       fileStart += this.streamsInfo.unpackSizes[prevStreamGlobalIndex];
     }
 
-    var fileSize = entry.size;
+    const fileSize = entry.size;
 
     // Create a PassThrough stream with the file data
-    var outputStream = new PassThrough();
+    const outputStream = new PassThrough();
 
     // Bounds check to prevent "oob" error on older Node versions
     if (fileStart + fileSize > data.length) {
       throw createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED);
     }
 
-    var fileData = data.slice(fileStart, fileStart + fileSize);
+    const fileData = data.slice(fileStart, fileStart + fileSize);
 
     // Verify CRC if present
     if (entry._crc !== undefined) {
-      var actualCRC = crc32(fileData);
+      const actualCRC = crc32(fileData);
       if (actualCRC !== entry._crc) {
         throw createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH);
       }
@@ -580,7 +580,7 @@ export class SevenZipParser {
   getEntryStreamAsync(entry: SevenZipEntry, callback: (err: Error | null, stream?: Readable) => void): void {
     if (!entry._hasStream || entry.type === 'directory') {
       // Return empty stream for directories and empty files
-      var emptyStream = new PassThrough();
+      const emptyStream = new PassThrough();
       emptyStream.end();
       callback(null, emptyStream);
       return;
@@ -592,38 +592,38 @@ export class SevenZipParser {
     }
 
     // Get folder info
-    var folder = this.streamsInfo.folders[entry._folderIndex];
+    const folder = this.streamsInfo.folders[entry._folderIndex];
     if (!folder) {
       callback(createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER));
       return;
     }
 
     // Check codec support
-    for (var i = 0; i < folder.coders.length; i++) {
-      var coder = folder.coders[i];
+    for (let i = 0; i < folder.coders.length; i++) {
+      const coder = folder.coders[i];
       if (!isCodecSupported(coder.id)) {
-        var codecName = getCodecName(coder.id);
+        const codecName = getCodecName(coder.id);
         callback(createCodedError(`Unsupported codec: ${codecName}`, ErrorCode.UNSUPPORTED_CODEC));
         return;
       }
     }
 
     // Get decompressed data for this folder using async method
-    var folderIdx = entry._folderIndex;
-    var streamsInfo = this.streamsInfo;
+    const folderIdx = entry._folderIndex;
+    const streamsInfo = this.streamsInfo;
 
     this.getDecompressedFolderAsync(folderIdx, (err, data) => {
       if (err) return callback(err);
       if (!data) return callback(new Error('No data returned from decompression'));
 
       // Calculate file offset within the decompressed block
-      var fileStart = 0;
-      for (var m = 0; m < entry._streamIndexInFolder; m++) {
-        var prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
+      let fileStart = 0;
+      for (let m = 0; m < entry._streamIndexInFolder; m++) {
+        const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
         fileStart += streamsInfo.unpackSizes[prevStreamGlobalIndex];
       }
 
-      var fileSize = entry.size;
+      const fileSize = entry.size;
 
       // Bounds check
       if (fileStart + fileSize > data.length) {
@@ -631,12 +631,12 @@ export class SevenZipParser {
       }
 
       // Create a PassThrough stream with the file data
-      var outputStream = new PassThrough();
-      var fileData = data.slice(fileStart, fileStart + fileSize);
+      const outputStream = new PassThrough();
+      const fileData = data.slice(fileStart, fileStart + fileSize);
 
       // Verify CRC if present
       if (entry._crc !== undefined) {
-        var actualCRC = crc32(fileData);
+        const actualCRC = crc32(fileData);
         if (actualCRC !== entry._crc) {
           return callback(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH));
         }
@@ -658,7 +658,7 @@ export class SevenZipParser {
    * Check if a folder uses BCJ2 codec
    */
   private folderHasBcj2(folder: { coders: { id: number[] }[] }): boolean {
-    for (var i = 0; i < folder.coders.length; i++) {
+    for (let i = 0; i < folder.coders.length; i++) {
       if (isBcj2Codec(folder.coders[i].id)) {
         return true;
       }
@@ -680,18 +680,18 @@ export class SevenZipParser {
       throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
     }
 
-    var folder = this.streamsInfo.folders[folderIndex];
+    const folder = this.streamsInfo.folders[folderIndex];
 
     // Check how many files remain in this folder
-    var filesInFolder = this.filesPerFolder[folderIndex] || 1;
-    var extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
-    var remainingFiles = filesInFolder - extractedFromFolder;
+    const filesInFolder = this.filesPerFolder[folderIndex] || 1;
+    const extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
+    const remainingFiles = filesInFolder - extractedFromFolder;
     // Only cache if more than 1 file remains (including the current one being extracted)
-    var shouldCache = remainingFiles > 1;
+    const shouldCache = remainingFiles > 1;
 
     // Check if this folder uses BCJ2 (requires special multi-stream handling)
     if (this.folderHasBcj2(folder)) {
-      var data = this.decompressBcj2Folder(folderIndex);
+      const data = this.decompressBcj2Folder(folderIndex);
       if (shouldCache) {
         this.decompressedCache[folderIndex] = data;
       }
@@ -699,31 +699,31 @@ export class SevenZipParser {
     }
 
     // Calculate packed data position
-    var packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+    let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
 
     // Find which pack stream this folder uses
-    var packStreamIndex = 0;
-    for (var j = 0; j < folderIndex; j++) {
+    let packStreamIndex = 0;
+    for (let j = 0; j < folderIndex; j++) {
       packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
     }
 
     // Calculate position of this pack stream
-    for (var k = 0; k < packStreamIndex; k++) {
+    for (let k = 0; k < packStreamIndex; k++) {
       packPos += this.streamsInfo.packSizes[k];
     }
 
-    var packSize = this.streamsInfo.packSizes[packStreamIndex];
+    const packSize = this.streamsInfo.packSizes[packStreamIndex];
 
     // Read packed data
-    var packedData = this.source.read(packPos, packSize);
+    const packedData = this.source.read(packPos, packSize);
 
     // Decompress through codec chain
-    var data2 = packedData;
-    for (var l = 0; l < folder.coders.length; l++) {
-      var coderInfo = folder.coders[l];
-      var codec = getCodec(coderInfo.id);
+    let data2 = packedData;
+    for (let l = 0; l < folder.coders.length; l++) {
+      const coderInfo = folder.coders[l];
+      const codec = getCodec(coderInfo.id);
       // Get unpack size for this coder (needed by LZMA)
-      var unpackSize = folder.unpackSizes[l];
+      const unpackSize = folder.unpackSizes[l];
       data2 = codec.decode(data2, coderInfo.properties, unpackSize);
     }
 
@@ -740,7 +740,7 @@ export class SevenZipParser {
    * Uses createDecoder() streams for non-blocking decompression
    */
   private getDecompressedFolderAsync(folderIndex: number, callback: DecompressCallback): void {
-    var self = this;
+    const self = this;
 
     // Check cache first
     if (this.decompressedCache[folderIndex]) {
@@ -753,19 +753,19 @@ export class SevenZipParser {
       return;
     }
 
-    var folder = this.streamsInfo.folders[folderIndex];
+    const folder = this.streamsInfo.folders[folderIndex];
 
     // Check how many files remain in this folder
-    var filesInFolder = this.filesPerFolder[folderIndex] || 1;
-    var extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
-    var remainingFiles = filesInFolder - extractedFromFolder;
-    var shouldCache = remainingFiles > 1;
+    const filesInFolder = this.filesPerFolder[folderIndex] || 1;
+    const extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
+    const remainingFiles = filesInFolder - extractedFromFolder;
+    const shouldCache = remainingFiles > 1;
 
     // BCJ2 requires special handling - use sync version for now
     // TODO: Add async BCJ2 support
     if (this.folderHasBcj2(folder)) {
       try {
-        var data = this.decompressBcj2Folder(folderIndex);
+        const data = this.decompressBcj2Folder(folderIndex);
         if (shouldCache) {
           this.decompressedCache[folderIndex] = data;
         }
@@ -777,36 +777,36 @@ export class SevenZipParser {
     }
 
     // Calculate packed data position
-    var packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+    let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
 
     // Find which pack stream this folder uses
-    var packStreamIndex = 0;
-    for (var j = 0; j < folderIndex; j++) {
+    let packStreamIndex = 0;
+    for (let j = 0; j < folderIndex; j++) {
       packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
     }
 
     // Calculate position of this pack stream
-    for (var k = 0; k < packStreamIndex; k++) {
+    for (let k = 0; k < packStreamIndex; k++) {
       packPos += this.streamsInfo.packSizes[k];
     }
 
-    var packSize = this.streamsInfo.packSizes[packStreamIndex];
+    const packSize = this.streamsInfo.packSizes[packStreamIndex];
 
     // Read packed data
-    var packedData = this.source.read(packPos, packSize);
+    const packedData = this.source.read(packPos, packSize);
 
     // Create decoder stream chain and decompress
-    var coders = folder.coders;
-    var unpackSizes = folder.unpackSizes;
+    const coders = folder.coders;
+    const unpackSizes = folder.unpackSizes;
 
     // Helper to decompress through a single codec stream
     function decompressWithStream(input: Buffer, coderIdx: number, cb: DecompressCallback): void {
-      var coderInfo = coders[coderIdx];
-      var codec = getCodec(coderInfo.id);
-      var decoder = codec.createDecoder(coderInfo.properties, unpackSizes[coderIdx]);
+      const coderInfo = coders[coderIdx];
+      const codec = getCodec(coderInfo.id);
+      const decoder = codec.createDecoder(coderInfo.properties, unpackSizes[coderIdx]);
 
-      var chunks: Buffer[] = [];
-      var errorOccurred = false;
+      const chunks: Buffer[] = [];
+      let errorOccurred = false;
 
       decoder.on('data', (chunk: Buffer) => {
         chunks.push(chunk);
@@ -858,29 +858,29 @@ export class SevenZipParser {
       throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
     }
 
-    var folder = this.streamsInfo.folders[folderIndex];
+    const folder = this.streamsInfo.folders[folderIndex];
 
     // Calculate starting pack position
-    var packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+    let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
 
     // Find which pack stream index this folder starts at
-    var packStreamIndex = 0;
-    for (var j = 0; j < folderIndex; j++) {
+    let packStreamIndex = 0;
+    for (let j = 0; j < folderIndex; j++) {
       packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
     }
 
     // Calculate position
-    for (var k = 0; k < packStreamIndex; k++) {
+    for (let k = 0; k < packStreamIndex; k++) {
       packPos += this.streamsInfo.packSizes[k];
     }
 
     // Read all pack streams for this folder
-    var numPackStreams = folder.packedStreams.length;
-    var packStreams: Buffer[] = [];
-    var currentPos = packPos;
+    const numPackStreams = folder.packedStreams.length;
+    const packStreams: Buffer[] = [];
+    let currentPos = packPos;
 
-    for (var p = 0; p < numPackStreams; p++) {
-      var size = this.streamsInfo.packSizes[packStreamIndex + p];
+    for (let p = 0; p < numPackStreams; p++) {
+      const size = this.streamsInfo.packSizes[packStreamIndex + p];
       packStreams.push(this.source.read(currentPos, size));
       currentPos += size;
     }
@@ -894,11 +894,11 @@ export class SevenZipParser {
     // Pack streams map to: coder inputs not bound to other coder outputs
 
     // First, decompress each non-BCJ2 coder
-    var coderOutputs: { [key: number]: Buffer } = {};
+    const coderOutputs: { [key: number]: Buffer } = {};
 
     // Find the BCJ2 coder
-    var bcj2CoderIndex = -1;
-    for (var c = 0; c < folder.coders.length; c++) {
+    let bcj2CoderIndex = -1;
+    for (let c = 0; c < folder.coders.length; c++) {
       if (isBcj2Codec(folder.coders[c].id)) {
         bcj2CoderIndex = c;
         break;
@@ -911,17 +911,17 @@ export class SevenZipParser {
 
     // Build input stream index -> pack stream mapping
     // folder.packedStreams tells us which input indices are unbound and their order
-    var inputToPackStream: { [key: number]: number } = {};
-    for (var pi = 0; pi < folder.packedStreams.length; pi++) {
+    const inputToPackStream: { [key: number]: number } = {};
+    for (let pi = 0; pi < folder.packedStreams.length; pi++) {
       inputToPackStream[folder.packedStreams[pi]] = pi;
     }
 
     // Build output stream index -> coder mapping
-    var outputToCoder: { [key: number]: number } = {};
-    var totalOutputs = 0;
-    for (var co = 0; co < folder.coders.length; co++) {
-      var numOut = folder.coders[co].numOutStreams;
-      for (var outp = 0; outp < numOut; outp++) {
+    const outputToCoder: { [key: number]: number } = {};
+    let totalOutputs = 0;
+    for (let co = 0; co < folder.coders.length; co++) {
+      const numOut = folder.coders[co].numOutStreams;
+      for (let outp = 0; outp < numOut; outp++) {
         outputToCoder[totalOutputs + outp] = co;
       }
       totalOutputs += numOut;
@@ -929,35 +929,35 @@ export class SevenZipParser {
 
     // Decompress non-BCJ2 coders (LZMA, LZMA2)
     // We need to process in dependency order
-    var processed: { [key: number]: boolean } = {};
+    const processed: { [key: number]: boolean } = {};
 
-    var processOrder = this.getCoderProcessOrder(folder, bcj2CoderIndex);
+    const processOrder = this.getCoderProcessOrder(folder, bcj2CoderIndex);
 
-    for (var po = 0; po < processOrder.length; po++) {
-      var coderIdx = processOrder[po];
+    for (let po = 0; po < processOrder.length; po++) {
+      const coderIdx = processOrder[po];
       if (coderIdx === bcj2CoderIndex) continue;
 
-      var coder = folder.coders[coderIdx];
-      var codec = getCodec(coder.id);
+      const coder = folder.coders[coderIdx];
+      const codec = getCodec(coder.id);
 
       // Find input for this coder
-      var coderInputStart = 0;
-      for (var ci2 = 0; ci2 < coderIdx; ci2++) {
+      let coderInputStart = 0;
+      for (let ci2 = 0; ci2 < coderIdx; ci2++) {
         coderInputStart += folder.coders[ci2].numInStreams;
       }
 
       // Get input data (from pack stream)
-      var inputIdx = coderInputStart;
-      var packStreamIdx = inputToPackStream[inputIdx];
-      var inputData = packStreams[packStreamIdx];
+      const inputIdx = coderInputStart;
+      const packStreamIdx = inputToPackStream[inputIdx];
+      const inputData = packStreams[packStreamIdx];
 
       // Decompress
-      var unpackSize = folder.unpackSizes[coderIdx];
-      var outputData = codec.decode(inputData, coder.properties, unpackSize);
+      const unpackSize = folder.unpackSizes[coderIdx];
+      const outputData = codec.decode(inputData, coder.properties, unpackSize);
 
       // Store in coder outputs
-      var coderOutputStart = 0;
-      for (var co2 = 0; co2 < coderIdx; co2++) {
+      let coderOutputStart = 0;
+      for (let co2 = 0; co2 < coderIdx; co2++) {
         coderOutputStart += folder.coders[co2].numOutStreams;
       }
       coderOutputs[coderOutputStart] = outputData;
@@ -967,18 +967,18 @@ export class SevenZipParser {
     // Now process BCJ2
     // BCJ2 has 4 inputs, need to map them correctly
     // Standard order: main(LZMA2 output), call(LZMA output), jump(LZMA output), range(raw pack)
-    var bcj2InputStart = 0;
-    for (var ci3 = 0; ci3 < bcj2CoderIndex; ci3++) {
+    let bcj2InputStart = 0;
+    for (let ci3 = 0; ci3 < bcj2CoderIndex; ci3++) {
       bcj2InputStart += folder.coders[ci3].numInStreams;
     }
 
-    var bcj2Inputs: Buffer[] = [];
-    for (var bi = 0; bi < 4; bi++) {
-      var globalIdx = bcj2InputStart + bi;
+    const bcj2Inputs: Buffer[] = [];
+    for (let bi = 0; bi < 4; bi++) {
+      const globalIdx = bcj2InputStart + bi;
 
       // Check if this input is bound to a coder output
-      var boundOutput = -1;
-      for (var bp2 = 0; bp2 < folder.bindPairs.length; bp2++) {
+      let boundOutput = -1;
+      for (let bp2 = 0; bp2 < folder.bindPairs.length; bp2++) {
         if (folder.bindPairs[bp2].inIndex === globalIdx) {
           boundOutput = folder.bindPairs[bp2].outIndex;
           break;
@@ -990,21 +990,21 @@ export class SevenZipParser {
         bcj2Inputs.push(coderOutputs[boundOutput]);
       } else {
         // Get from pack streams
-        var psIdx = inputToPackStream[globalIdx];
+        const psIdx = inputToPackStream[globalIdx];
         bcj2Inputs.push(packStreams[psIdx]);
       }
     }
 
     // Get BCJ2 unpack size
-    var bcj2OutputStart = 0;
-    for (var co3 = 0; co3 < bcj2CoderIndex; co3++) {
+    let bcj2OutputStart = 0;
+    for (let co3 = 0; co3 < bcj2CoderIndex; co3++) {
       bcj2OutputStart += folder.coders[co3].numOutStreams;
     }
-    var bcj2UnpackSize = folder.unpackSizes[bcj2OutputStart];
+    const bcj2UnpackSize = folder.unpackSizes[bcj2OutputStart];
 
     // Memory optimization: Clear intermediate buffers to help GC
     // These are no longer needed after bcj2Inputs is built
-    for (var key in coderOutputs) {
+    for (const key in coderOutputs) {
       delete coderOutputs[key];
     }
     // Clear packStreams array (allows GC to free compressed data)
@@ -1018,33 +1018,33 @@ export class SevenZipParser {
    * Get processing order for coders (dependency order)
    */
   private getCoderProcessOrder(folder: { coders: { numInStreams: number; numOutStreams: number }[]; bindPairs: { inIndex: number; outIndex: number }[] }, excludeIdx: number): number[] {
-    var order: number[] = [];
-    var processed: { [key: number]: boolean } = {};
+    const order: number[] = [];
+    const processed: { [key: number]: boolean } = {};
 
     // Simple approach: process coders that don't depend on unprocessed outputs
-    var changed = true;
+    let changed = true;
     while (changed) {
       changed = false;
-      for (var c = 0; c < folder.coders.length; c++) {
+      for (let c = 0; c < folder.coders.length; c++) {
         if (processed[c] || c === excludeIdx) continue;
 
         // Check if all inputs are satisfied
-        var inputStart = 0;
-        for (var i = 0; i < c; i++) {
+        let inputStart = 0;
+        for (let i = 0; i < c; i++) {
           inputStart += folder.coders[i].numInStreams;
         }
 
-        var canProcess = true;
-        for (var inp = 0; inp < folder.coders[c].numInStreams; inp++) {
-          var globalIdx = inputStart + inp;
+        let canProcess = true;
+        for (let inp = 0; inp < folder.coders[c].numInStreams; inp++) {
+          const globalIdx = inputStart + inp;
           // Check if bound to an unprocessed coder
-          for (var bp = 0; bp < folder.bindPairs.length; bp++) {
+          for (let bp = 0; bp < folder.bindPairs.length; bp++) {
             if (folder.bindPairs[bp].inIndex === globalIdx) {
               // Find which coder produces this output
-              var outIdx = folder.bindPairs[bp].outIndex;
-              var outStart = 0;
-              for (var oc = 0; oc < folder.coders.length; oc++) {
-                var numOut = folder.coders[oc].numOutStreams;
+              const outIdx = folder.bindPairs[bp].outIndex;
+              let outStart = 0;
+              for (let oc = 0; oc < folder.coders.length; oc++) {
+                const numOut = folder.coders[oc].numOutStreams;
                 if (outIdx < outStart + numOut) {
                   if (!processed[oc] && oc !== excludeIdx) {
                     canProcess = false;
@@ -1082,8 +1082,8 @@ export class SevenZipParser {
  * Get base name from a path
  */
 function getBaseName(path: string): string {
-  var lastSlash = path.lastIndexOf('/');
-  var lastBackslash = path.lastIndexOf('\\');
-  var lastSep = Math.max(lastSlash, lastBackslash);
+  const lastSlash = path.lastIndexOf('/');
+  const lastBackslash = path.lastIndexOf('\\');
+  const lastSep = Math.max(lastSlash, lastBackslash);
   return lastSep >= 0 ? path.slice(lastSep + 1) : path;
 }

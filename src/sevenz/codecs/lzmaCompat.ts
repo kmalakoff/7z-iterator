@@ -12,14 +12,14 @@
 import Module from 'module';
 import type { Transform } from 'readable-stream';
 
-var _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
+const _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
 
 // Try to load lzma-native (only on Node 10+ where ES6 class syntax is supported)
 // Note: We must check the version BEFORE requiring because syntax errors during
 // module parsing cannot be caught by try/catch
-var lzmaNative: typeof import('lzma-native') | null = null;
-var _hasNativeLzmaLib = false;
-var major = +process.versions.node.split('.')[0];
+let lzmaNative: typeof import('lzma-native') | null = null;
+let _hasNativeLzmaLib = false;
+const major = +process.versions.node.split('.')[0];
 
 if (major >= 10) {
   try {
@@ -32,7 +32,7 @@ if (major >= 10) {
 }
 
 // Export whether native lzma is available for streaming
-export var hasNativeLzma = _hasNativeLzmaLib;
+export const hasNativeLzma = _hasNativeLzmaLib;
 
 /**
  * Create a native LZMA2 decoder stream

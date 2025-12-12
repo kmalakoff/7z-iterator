@@ -46,10 +46,10 @@ export default class SevenZipIterator extends BaseIterator {
     super(options);
     this.lock = new Lock();
     this.lock.iterator = this;
-    var queue = new Queue(1);
-    var cancelled = false;
-    var archiveSource: ArchiveSource | null = null;
-    var setup = (): undefined => {
+    const queue = new Queue(1);
+    let cancelled = false;
+    let archiveSource: ArchiveSource | null = null;
+    const setup = (): undefined => {
       cancelled = true;
       return undefined;
     };
@@ -79,7 +79,7 @@ export default class SevenZipIterator extends BaseIterator {
       // Stream input - use hybrid memory/temp-file approach
       // Store source stream in lock for cleanup if destroyed during download
       this.lock.sourceStream = source as NodeJS.ReadableStream;
-      var tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
+      const tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
       queue.defer((cb: (err?: Error) => void) => {
         streamToSource(
           source,
@@ -111,7 +111,7 @@ export default class SevenZipIterator extends BaseIterator {
       if (!archiveSource) return cb(new Error('No archive source'));
 
       try {
-        var parser = new SevenZipParser(archiveSource);
+        const parser = new SevenZipParser(archiveSource);
         parser.parse();
         this.iterator = new EntryIterator(parser);
         cb();

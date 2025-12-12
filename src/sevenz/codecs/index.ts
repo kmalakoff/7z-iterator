@@ -28,14 +28,14 @@ export interface Codec {
 }
 
 // Registry of supported codecs
-var codecs: { [key: string]: Codec } = {};
+const codecs: { [key: string]: Codec } = {};
 
 /**
  * Convert codec ID bytes to a string key
  */
 function codecIdToKey(id: number[]): string {
-  var parts: string[] = [];
-  for (var i = 0; i < id.length; i++) {
+  const parts: string[] = [];
+  for (let i = 0; i < id.length; i++) {
     parts.push(id[i].toString(16).toUpperCase());
   }
   return parts.join('-');
@@ -46,7 +46,7 @@ function codecIdToKey(id: number[]): string {
  */
 function codecIdEquals(a: number[], b: number[]): boolean {
   if (a.length !== b.length) return false;
-  for (var i = 0; i < a.length; i++) {
+  for (let i = 0; i < a.length; i++) {
     if (a[i] !== b[i]) return false;
   }
   return true;
@@ -64,8 +64,8 @@ export function registerCodec(id: number[], codec: Codec): void {
  * @throws Error if codec is not supported
  */
 export function getCodec(id: number[]): Codec {
-  var key = codecIdToKey(id);
-  var codec = codecs[key];
+  const key = codecIdToKey(id);
+  const codec = codecs[key];
   if (!codec) {
     throw createCodedError(`Unsupported codec: ${key}`, ErrorCode.UNSUPPORTED_CODEC);
   }

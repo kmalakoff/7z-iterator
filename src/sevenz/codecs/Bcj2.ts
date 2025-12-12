@@ -13,16 +13,16 @@ import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 
 // Range coder constants
-var kTopValue = 1 << 24;
-var kNumBitModelTotalBits = 11;
-var kBitModelTotal = 1 << kNumBitModelTotalBits;
-var kNumMoveBits = 5;
+const kTopValue = 1 << 24;
+const kNumBitModelTotalBits = 11;
+const kBitModelTotal = 1 << kNumBitModelTotalBits;
+const kNumMoveBits = 5;
 
 // Number of probability models:
 // Index 0: conditional jumps (0x0F 0x80-0x8F)
 // Index 1: JMP (0xE9)
 // Indices 2-257: CALL (0xE8), indexed by previous byte
-var kNumProbs = 258;
+const kNumProbs = 258;
 
 /**
  * Range decoder state
@@ -38,7 +38,7 @@ interface RangeDecoder {
  * Initialize range decoder
  */
 function initRangeDecoder(stream: Buffer): RangeDecoder {
-  var rd: RangeDecoder = {
+  const rd: RangeDecoder = {
     range: 0xffffffff,
     code: 0,
     stream: stream,
@@ -46,7 +46,7 @@ function initRangeDecoder(stream: Buffer): RangeDecoder {
   };
 
   // Initialize code from first 5 bytes
-  for (var i = 0; i < 5; i++) {
+  for (let i = 0; i < 5; i++) {
     rd.code = (rd.code << 8) | (rd.pos < stream.length ? stream[rd.pos++] : 0);
   }
 
@@ -57,10 +57,10 @@ function initRangeDecoder(stream: Buffer): RangeDecoder {
  * Decode a single bit using probability model
  */
 function decodeBit(rd: RangeDecoder, prob: number[], probIndex: number): number {
-  var ttt = prob[probIndex];
-  var bound = (rd.range >>> kNumBitModelTotalBits) * ttt;
+  const ttt = prob[probIndex];
+  const bound = (rd.range >>> kNumBitModelTotalBits) * ttt;
 
-  var symbol: number;
+  let symbol: number;
   if (rd.code >>> 0 < bound >>> 0) {
     rd.range = bound;
     prob[probIndex] = (ttt + ((kBitModelTotal - ttt) >>> kNumMoveBits)) | 0;
@@ -95,46 +95,46 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
   // streams[1] = call stream (after LZMA)
   // streams[2] = jump stream (after LZMA)
   // streams[3] = range coder stream (uncompressed)
-  var mainStream = streams[0];
-  var callStream = streams[1];
-  var jumpStream = streams[2];
-  var rcStream = streams[3];
+  const mainStream = streams[0];
+  const callStream = streams[1];
+  const jumpStream = streams[2];
+  const rcStream = streams[3];
 
   // Output buffer
-  var outSize = unpackSize || mainStream.length + callStream.length + jumpStream.length;
-  var output = allocBuffer(outSize);
-  var outPos = 0;
+  const outSize = unpackSize || mainStream.length + callStream.length + jumpStream.length;
+  const output = allocBuffer(outSize);
+  let outPos = 0;
 
   // Stream positions
-  var mainPos = 0;
-  var callPos = 0;
-  var jumpPos = 0;
+  let mainPos = 0;
+  let callPos = 0;
+  let jumpPos = 0;
 
   // Initialize range decoder
-  var rd = initRangeDecoder(rcStream);
+  const rd = initRangeDecoder(rcStream);
 
   // Initialize probability models
-  var probs: number[] = [];
-  for (var i = 0; i < kNumProbs; i++) {
+  const probs: number[] = [];
+  for (let i = 0; i < kNumProbs; i++) {
     probs.push(kBitModelTotal >>> 1);
   }
 
   // Track previous byte for probability context
-  var prevByte = 0;
+  let prevByte = 0;
 
   // Instruction pointer for address conversion
-  var ip = 0;
+  let ip = 0;
 
   while (outPos < outSize && mainPos < mainStream.length) {
-    var b = mainStream[mainPos++];
+    const b = mainStream[mainPos++];
 
     // Check for branch opcodes
     if (b === 0xe8 || b === 0xe9) {
       // CALL (0xE8) or JMP (0xE9)
       // Use range decoder to check if this should be processed
       // Probability index: E8 uses 2 + prevByte, E9 uses 1
-      var probIndex = b === 0xe8 ? 2 + prevByte : 1;
-      var isMatch = decodeBit(rd, probs, probIndex);
+      const probIndex = b === 0xe8 ? 2 + prevByte : 1;
+      const isMatch = decodeBit(rd, probs, probIndex);
 
       if (outPos >= outSize) break;
       output[outPos++] = b;
@@ -142,8 +142,8 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
 
       if (isMatch) {
         // Read 4-byte address from appropriate stream
-        var addrStream = b === 0xe8 ? callStream : jumpStream;
-        var addrPos = b === 0xe8 ? callPos : jumpPos;
+        const addrStream = b === 0xe8 ? callStream : jumpStream;
+        const addrPos = b === 0xe8 ? callPos : jumpPos;
 
         if (addrPos + 4 > addrStream.length) {
           // Not enough data, copy remaining
@@ -154,7 +154,7 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
         if (outPos + 4 > outSize) break;
 
         // Read as big-endian (BCJ2 stores addresses big-endian)
-        var addr = (addrStream[addrPos] << 24) | (addrStream[addrPos + 1] << 16) | (addrStream[addrPos + 2] << 8) | addrStream[addrPos + 3];
+        let addr = (addrStream[addrPos] << 24) | (addrStream[addrPos + 1] << 16) | (addrStream[addrPos + 2] << 8) | addrStream[addrPos + 3];
 
         if (b === 0xe8) {
           callPos += 4;
@@ -182,13 +182,13 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
       output[outPos++] = b;
       ip++;
 
-      var b2 = mainStream[mainPos];
+      const b2 = mainStream[mainPos];
       if ((b2 & 0xf0) === 0x80) {
         // Conditional jump
         mainPos++;
         // Probability index 0 for conditional jumps (since b2 != 0xE8 and b2 != 0xE9)
-        var probIndex2 = 0;
-        var isMatch2 = decodeBit(rd, probs, probIndex2);
+        const probIndex2 = 0;
+        const isMatch2 = decodeBit(rd, probs, probIndex2);
 
         if (outPos >= outSize) break;
         output[outPos++] = b2;
@@ -203,7 +203,7 @@ export function decodeBcj2Multi(streams: Buffer[], _properties?: Buffer, unpackS
           // Check if we have room for 4 address bytes
           if (outPos + 4 > outSize) break;
 
-          var addr2 = (jumpStream[jumpPos] << 24) | (jumpStream[jumpPos + 1] << 16) | (jumpStream[jumpPos + 2] << 8) | jumpStream[jumpPos + 3];
+          let addr2 = (jumpStream[jumpPos] << 24) | (jumpStream[jumpPos + 1] << 16) | (jumpStream[jumpPos + 2] << 8) | jumpStream[jumpPos + 3];
           jumpPos += 4;
 
           // Convert absolute to relative

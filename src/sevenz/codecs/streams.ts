@@ -8,9 +8,9 @@ import { allocBufferUnsafe } from 'extract-base-iterator';
  * Wraps a Buffer region as a readable stream interface
  */
 export function createInputStream(buffer: Buffer, offset: number, length: number) {
-  var pos = 0;
-  var end = Math.min(offset + length, buffer.length);
-  var start = offset;
+  let pos = 0;
+  const end = Math.min(offset + length, buffer.length);
+  const start = offset;
 
   return {
     readByte: (): number => {
@@ -18,7 +18,7 @@ export function createInputStream(buffer: Buffer, offset: number, length: number
       return buffer[start + pos++];
     },
     read: (buf: number[], bufOffset: number, len: number): number => {
-      var bytesRead = 0;
+      let bytesRead = 0;
       while (bytesRead < len && start + pos < end) {
         buf[bufOffset + bytesRead] = buffer[start + pos];
         pos++;
@@ -43,9 +43,9 @@ export function createOutputStream(expectedSize?: number) {
   // Pre-allocation mode: single buffer, no concat needed
   // Includes bounds checking for safety on older Node.js versions
   if (expectedSize && expectedSize > 0) {
-    var buffer = allocBufferUnsafe(expectedSize);
-    var bufPos = 0;
-    var bufLen = buffer.length;
+    const buffer = allocBufferUnsafe(expectedSize);
+    let bufPos = 0;
+    const bufLen = buffer.length;
 
     return {
       writeByte: (b: number): void => {
@@ -55,7 +55,7 @@ export function createOutputStream(expectedSize?: number) {
         // Silently ignore overflow (should not happen with correct size)
       },
       write: (buf: number[], bufOffset: number, len: number): number => {
-        for (var i = 0; i < len && bufPos < bufLen; i++) {
+        for (let i = 0; i < len && bufPos < bufLen; i++) {
           buffer[bufPos++] = buf[bufOffset + i];
         }
         return len;
@@ -71,10 +71,10 @@ export function createOutputStream(expectedSize?: number) {
   }
 
   // Chunked mode: accumulate in 64KB chunks (fallback for unknown size)
-  var chunks: Buffer[] = [];
-  var CHUNK_SIZE = 65536; // 64KB chunks for better memory efficiency
-  var currentChunk: Buffer = allocBufferUnsafe(CHUNK_SIZE);
-  var pos = 0;
+  const chunks: Buffer[] = [];
+  const CHUNK_SIZE = 65536; // 64KB chunks for better memory efficiency
+  let currentChunk: Buffer = allocBufferUnsafe(CHUNK_SIZE);
+  let pos = 0;
 
   return {
     writeByte: (b: number): void => {
@@ -86,7 +86,7 @@ export function createOutputStream(expectedSize?: number) {
       }
     },
     write: function (buf: number[], bufOffset: number, len: number): number {
-      for (var i = 0; i < len; i++) {
+      for (let i = 0; i < len; i++) {
         this.writeByte(buf[bufOffset + i]);
       }
       return len;

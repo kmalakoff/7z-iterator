@@ -26,10 +26,10 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
     return;
   }
 
-  var entry: SevenZipEntry | null = null;
+  let entry: SevenZipEntry | null = null;
   entry = iterator.iterator.next();
 
-  var nextCallback = once((err?: Error, entry?: Entry) => {
+  const nextCallback = once((err?: Error, entry?: Entry) => {
     // keep processing
     if (entry) iterator.push(nextEntry);
     err ? callback(err) : callback(null, entry ? { done: false, value: entry } : { done: true, value: null });
@@ -45,16 +45,16 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
   }
 
   // Determine type from entry
-  var type = entry.type;
+  const type = entry.type;
 
   // Default modes (decimal values for Node 0.8 compatibility)
   // 0o755 = 493, 0o644 = 420
-  var defaultMode = type === 'directory' ? 493 : 420;
+  const defaultMode = type === 'directory' ? 493 : 420;
 
   // Build attributes from 7z entry
   // mtime must be timestamp (number) for FileAttributes compatibility
-  var mtimeDate = entry.mtime || new Date();
-  var attributes: EntryAttributesBuilder = {
+  const mtimeDate = entry.mtime || new Date();
+  const attributes: EntryAttributesBuilder = {
     path: compact(entry.path.split(path.sep)).join(path.sep),
     basename: entry.name,
     mtime: mtimeDate.getTime(),
@@ -69,22 +69,22 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
     case 'link': {
       // For symlinks, the file content IS the symlink target path
       // Read the content to get the linkpath for SymbolicLinkEntry
-      var parser = iterator.iterator.getParser();
+      const parser = iterator.iterator.getParser();
 
       // Use callback-based async decompression
       parser.getEntryStreamAsync(entry, (err, stream) => {
         if (err) return nextCallback(err);
         if (!stream) return nextCallback(new Error('No stream returned'));
 
-        var chunks: Buffer[] = [];
+        const chunks: Buffer[] = [];
 
         stream.on('data', (chunk: Buffer) => {
           chunks.push(chunk);
         });
         stream.on('end', () => {
-          var linkpath = Buffer.concat(chunks).toString('utf8');
+          const linkpath = Buffer.concat(chunks).toString('utf8');
 
-          var linkAttributes: LinkAttributes = {
+          const linkAttributes: LinkAttributes = {
             path: attributes.path,
             mtime: attributes.mtime,
             mode: attributes.mode,
@@ -103,7 +103,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
     case 'file': {
       attributes.type = 'file';
       attributes.size = entry.size;
-      var parser2 = iterator.iterator.getParser();
+      const parser2 = iterator.iterator.getParser();
       return nextCallback(null, new FileEntry(attributes as FileAttributes, entry, parser2, iterator.lock));
     }
   }

@@ -20,7 +20,7 @@ export type DecodeFn = (input: Buffer, properties?: Buffer, unpackSize?: number)
  * This is the common pattern for codecs that can't stream (need full input)
  */
 export default function createBufferingDecoder(decodeFn: DecodeFn, properties?: Buffer, unpackSize?: number): Stream.Transform {
-  var chunks: Buffer[] = [];
+  const chunks: Buffer[] = [];
 
   return new Transform({
     transform: (chunk: Buffer, _encoding: string, callback: TransformCallback) => {
@@ -29,8 +29,8 @@ export default function createBufferingDecoder(decodeFn: DecodeFn, properties?: 
     },
     flush: function (callback: TransformCallback) {
       try {
-        var input = Buffer.concat(chunks);
-        var output = decodeFn(input, properties, unpackSize);
+        const input = Buffer.concat(chunks);
+        const output = decodeFn(input, properties, unpackSize);
         this.push(output);
         callback();
       } catch (err) {

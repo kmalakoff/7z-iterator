@@ -8,13 +8,13 @@
  * - Uses native find on Node 4.0+ / ES2015+
  * - Falls back to loop on Node 0.8-3.x
  */
-var hasArrayFind = typeof Array.prototype.find === 'function';
+const hasArrayFind = typeof Array.prototype.find === 'function';
 
 export function arrayFind<T>(arr: T[], predicate: (item: T) => boolean): T | undefined {
   if (hasArrayFind) {
     return arr.find(predicate);
   }
-  for (var i = 0; i < arr.length; i++) {
+  for (let i = 0; i < arr.length; i++) {
     if (predicate(arr[i])) {
       return arr[i];
     }
@@ -27,13 +27,13 @@ export function arrayFind<T>(arr: T[], predicate: (item: T) => boolean): T | und
  * - Uses native endsWith on Node 4.0+ / ES2015+
  * - Falls back to indexOf on Node 0.8-3.x
  */
-var hasEndsWith = typeof String.prototype.endsWith === 'function';
+const hasEndsWith = typeof String.prototype.endsWith === 'function';
 
 export function stringEndsWith(str: string, search: string, length?: number): boolean {
   if (hasEndsWith) {
     return str.endsWith(search, length);
   }
   length = length === undefined ? str.length : length;
-  var pos = length - search.length;
+  const pos = length - search.length;
   return pos >= 0 && str.indexOf(search, pos) === pos;
 }

@@ -2,14 +2,14 @@
 // Reference: https://py7zr.readthedocs.io/en/latest/archive_format.html
 
 // 7z signature: '7z' + magic bytes
-export var SEVENZ_MAGIC = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
+export const SEVENZ_MAGIC = [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c];
 
 // Header sizes
-export var SIGNATURE_HEADER_SIZE = 32;
-export var START_HEADER_SIZE = 20; // Part of signature header after magic + version
+export const SIGNATURE_HEADER_SIZE = 32;
+export const START_HEADER_SIZE = 20; // Part of signature header after magic + version
 
 // Property IDs for encoded header
-export var PropertyId = {
+export const PropertyId = {
   kEnd: 0x00,
   kHeader: 0x01,
   kArchiveProperties: 0x02,
@@ -41,7 +41,7 @@ export var PropertyId = {
 // Codec IDs
 // 7z uses variable-length codec IDs
 // Reference: 7za i output shows hex codec IDs (e.g., 3030501 = ARM)
-export var CodecId = {
+export const CodecId = {
   COPY: [0x00],
   DELTA: [0x03],
   LZMA: [0x03, 0x01, 0x01],
@@ -61,7 +61,7 @@ export var CodecId = {
 };
 
 // File attribute flags (Windows style, stored in FilesInfo)
-export var FileAttribute = {
+export const FileAttribute = {
   READONLY: 0x01,
   HIDDEN: 0x02,
   SYSTEM: 0x04,
@@ -80,7 +80,7 @@ export var FileAttribute = {
 };
 
 // Unix permission modes (decimal values for Node 0.8 compatibility)
-export var UnixMode = {
+export const UnixMode = {
   DIR: 16384, // 0o40000 - directory
   FILE: 32768, // 0o100000 - regular file
   SYMLINK: 40960, // 0o120000 - symbolic link
@@ -92,7 +92,7 @@ export var UnixMode = {
 };
 
 // Error codes
-export var ErrorCode = {
+export const ErrorCode = {
   INVALID_SIGNATURE: 'INVALID_SIGNATURE',
   CRC_MISMATCH: 'CRC_MISMATCH',
   UNSUPPORTED_CODEC: 'UNSUPPORTED_CODEC',
@@ -114,7 +114,7 @@ export interface CodedError extends Error {
  * Create an error with a code property
  */
 export function createCodedError(message: string, code: string): CodedError {
-  var err = new Error(message) as CodedError;
+  const err = new Error(message) as CodedError;
   err.code = code;
   return err;
 }

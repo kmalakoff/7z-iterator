@@ -20,22 +20,22 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  */
 export function decodeDelta(input: Buffer, properties?: Buffer, _unpackSize?: number): Buffer {
   // Distance parameter: default is 1
-  var distance = 1;
+  let distance = 1;
   if (properties && properties.length >= 1) {
     // Properties byte contains (distance - 1)
     distance = properties[0] + 1;
   }
 
-  var output = bufferFrom(input); // Copy since we modify in place
+  const output = bufferFrom(input); // Copy since we modify in place
 
   // State buffer for multi-byte distance
-  var state = new Array(distance);
-  for (var i = 0; i < distance; i++) {
+  const state = new Array(distance);
+  for (let i = 0; i < distance; i++) {
     state[i] = 0;
   }
 
-  for (var j = 0; j < output.length; j++) {
-    var idx = j % distance;
+  for (let j = 0; j < output.length; j++) {
+    const idx = j % distance;
     state[idx] = (state[idx] + output[j]) & 0xff;
     output[j] = state[idx];
   }

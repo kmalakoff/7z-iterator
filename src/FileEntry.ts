@@ -51,7 +51,7 @@ export default class SevenZipFileEntry extends FileEntry {
       if (err) return callback(err);
       if (!stream) return callback(new Error('No stream returned'));
 
-      var res = stream.pipe(fs.createWriteStream(fullPath));
+      const res = stream.pipe(fs.createWriteStream(fullPath));
       oo(res, ['error', 'end', 'close', 'finish'], (writeErr?: Error) => {
         writeErr ? callback(writeErr) : waitForAccess(fullPath, callback);
       });

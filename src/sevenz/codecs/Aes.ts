@@ -20,7 +20,7 @@ import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 
 // Global password storage - set before decryption
-var _password: string | null = null;
+let _password: string | null = null;
 
 /**
  * Set the password for AES decryption
@@ -44,8 +44,8 @@ function parseProperties(properties: Buffer): { numCyclesPower: number; salt: Bu
     throw new Error('AES: missing properties');
   }
 
-  var b0 = properties[0];
-  var numCyclesPower = b0 & 0x3f;
+  const b0 = properties[0];
+  const numCyclesPower = b0 & 0x3f;
 
   // Check for special case: no salt/IV flags
   if ((b0 & 0xc0) === 0) {
@@ -61,25 +61,25 @@ function parseProperties(properties: Buffer): { numCyclesPower: number; salt: Bu
     throw new Error('AES: properties too short');
   }
 
-  var b1 = properties[1];
+  const b1 = properties[1];
 
   // Calculate sizes
   // saltSize = ((b0 >> 7) & 1) + (b1 >> 4)
   // ivSize = ((b0 >> 6) & 1) + (b1 & 0x0F)
-  var saltSize = ((b0 >>> 7) & 1) + (b1 >>> 4);
-  var ivSize = ((b0 >>> 6) & 1) + (b1 & 0x0f);
+  const saltSize = ((b0 >>> 7) & 1) + (b1 >>> 4);
+  const ivSize = ((b0 >>> 6) & 1) + (b1 & 0x0f);
 
-  var expectedSize = 2 + saltSize + ivSize;
+  const expectedSize = 2 + saltSize + ivSize;
   if (properties.length < expectedSize) {
     throw new Error('AES: properties too short for salt/IV');
   }
 
-  var salt = properties.slice(2, 2 + saltSize);
-  var iv = allocBuffer(16);
+  const salt = properties.slice(2, 2 + saltSize);
+  const iv = allocBuffer(16);
 
   // Copy IV data (may be less than 16 bytes, rest is zeros)
-  var ivData = properties.slice(2 + saltSize, 2 + saltSize + ivSize);
-  for (var i = 0; i < ivData.length && i < 16; i++) {
+  const ivData = properties.slice(2 + saltSize, 2 + saltSize + ivSize);
+  for (let i = 0; i < ivData.length && i < 16; i++) {
     iv[i] = ivData[i];
   }
 
@@ -94,9 +94,9 @@ function parseProperties(properties: Buffer): { numCyclesPower: number; salt: Bu
  * Convert password string to UTF-16LE buffer
  */
 function passwordToUtf16LE(password: string): Buffer {
-  var buf = allocBuffer(password.length * 2);
-  for (var i = 0; i < password.length; i++) {
-    var code = password.charCodeAt(i);
+  const buf = allocBuffer(password.length * 2);
+  for (let i = 0; i < password.length; i++) {
+    const code = password.charCodeAt(i);
     buf[i * 2] = code & 0xff;
     buf[i * 2 + 1] = (code >>> 8) & 0xff;
   }
@@ -114,37 +114,37 @@ function passwordToUtf16LE(password: string): Buffer {
  *   key = hash.digest()
  */
 function deriveKey(password: string, salt: Buffer, numCyclesPower: number): Buffer {
-  var passwordBuf = passwordToUtf16LE(password);
-  var numRounds = 2 ** numCyclesPower;
+  const passwordBuf = passwordToUtf16LE(password);
+  const numRounds = 2 ** numCyclesPower;
 
   // For special case 0x3F, don't iterate
   if (numCyclesPower === 0x3f) {
     // Direct concatenation mode
-    var key = allocBuffer(32);
-    var offset = 0;
-    for (var j = 0; j < salt.length && offset < 32; j++) {
+    const key = allocBuffer(32);
+    let offset = 0;
+    for (let j = 0; j < salt.length && offset < 32; j++) {
       key[offset++] = salt[j];
     }
-    for (var k = 0; k < passwordBuf.length && offset < 32; k++) {
+    for (let k = 0; k < passwordBuf.length && offset < 32; k++) {
       key[offset++] = passwordBuf[k];
     }
     return key;
   }
 
   // Counter buffer (8 bytes, little-endian)
-  var counter = allocBuffer(8);
+  const counter = allocBuffer(8);
 
   // Create hash and iterate
-  var hash = crypto.createHash('sha256');
+  const hash = crypto.createHash('sha256');
 
-  for (var round = 0; round < numRounds; round++) {
+  for (let round = 0; round < numRounds; round++) {
     // Write round counter as little-endian 64-bit
     counter[0] = round & 0xff;
     counter[1] = (round >>> 8) & 0xff;
     counter[2] = (round >>> 16) & 0xff;
     counter[3] = (round >>> 24) & 0xff;
     // Upper 32 bits - for large round counts
-    var high = Math.floor(round / 0x100000000);
+    const high = Math.floor(round / 0x100000000);
     counter[4] = high & 0xff;
     counter[5] = (high >>> 8) & 0xff;
     counter[6] = (high >>> 16) & 0xff;
@@ -175,18 +175,18 @@ export function decodeAes(input: Buffer, properties?: Buffer, _unpackSize?: numb
     throw new Error('AES: properties required');
   }
 
-  var params = parseProperties(properties);
-  var key = deriveKey(_password, params.salt, params.numCyclesPower);
+  const params = parseProperties(properties);
+  const key = deriveKey(_password, params.salt, params.numCyclesPower);
 
   // Create AES-256-CBC decipher
-  var decipher = crypto.createDecipheriv('aes-256-cbc', key, params.iv);
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, params.iv);
   decipher.setAutoPadding(false); // 7z doesn't use PKCS7 padding
 
   // Node 0.8 returns binary strings, newer Node returns Buffers
   // Use 'binary' encoding for compatibility
   // @ts-expect-error - 'binary' encoding is deprecated but required for Node 0.8 compatibility
-  var decStr = decipher.update(input, 'binary', 'binary') + decipher.final('binary');
-  var decrypted = bufferFrom(decStr, 'binary' as BufferEncoding);
+  const decStr = decipher.update(input, 'binary', 'binary') + decipher.final('binary');
+  const decrypted = bufferFrom(decStr, 'binary' as BufferEncoding);
 
   return decrypted;
 }
