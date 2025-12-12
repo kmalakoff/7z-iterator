@@ -48,7 +48,7 @@
   },
   "dependencies": {
     "call-once-fn": "^1.1.9",
-    "extract-base-iterator": "^2.4.12",
+    "extract-base-iterator": "^2.4.13",
     "fs-remove-compat": "^0.2.2",
     "lodash.compact": "^3.0.1",
     "mkdirp-classic": "^0.5.3",
@@ -63,9 +63,9 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^25.0.1",
-    "fs-iterator": "^6.1.10",
+    "fs-iterator": "^6.1.11",
     "fs-stats-spys": "^1.2.8",
-    "get-remote": "^2.3.1",
+    "get-remote": "^2.3.2",
     "lzma-native": "^8.0.6",
     "node-version-use": "^2.1.5",
     "pinkie-promise": "^2.0.1",
