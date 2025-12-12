@@ -25,15 +25,15 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  * @returns Unfiltered data
  */
 export function decodeBcjArm(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
-  var output = bufferFrom(input); // Copy since we modify in place
-  var pos = 0;
+  const output = bufferFrom(input); // Copy since we modify in place
+  let pos = 0;
 
   // Process 4-byte aligned positions
   while (pos + 4 <= output.length) {
     // Check for BL instruction: byte 3 is 0xEB
     if (output[pos + 3] === 0xeb) {
       // Read 24-bit address (little-endian in bytes 0-2)
-      var addr = output[pos] | (output[pos + 1] << 8) | (output[pos + 2] << 16);
+      let addr = output[pos] | (output[pos + 1] << 8) | (output[pos + 2] << 16);
 
       // Sign-extend 24-bit to 32-bit
       if (addr & 0x800000) {
@@ -43,7 +43,7 @@ export function decodeBcjArm(input: Buffer, _properties?: Buffer, _unpackSize?: 
       // Convert absolute to relative:
       // Subtract current position (in words, so divide by 4)
       // ARM PC is 2 words (8 bytes) ahead during execution
-      var relAddr = addr - (pos >>> 2);
+      const relAddr = addr - (pos >>> 2);
 
       // Write back lower 24 bits
       output[pos] = relAddr & 0xff;

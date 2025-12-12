@@ -25,19 +25,19 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  * @returns Unfiltered data
  */
 export function decodeBcjArm64(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
-  var output = bufferFrom(input); // Copy since we modify in place
-  var pos = 0;
+  const output = bufferFrom(input); // Copy since we modify in place
+  let pos = 0;
 
   // Process 4-byte aligned positions
   while (pos + 4 <= output.length) {
     // Read 32-bit value (little-endian)
-    var instr = output[pos] | (output[pos + 1] << 8) | (output[pos + 2] << 16) | ((output[pos + 3] << 24) >>> 0);
+    let instr = output[pos] | (output[pos + 1] << 8) | (output[pos + 2] << 16) | ((output[pos + 3] << 24) >>> 0);
 
     // Check for B/BL instruction: (instr & 0x7C000000) === 0x14000000
     // This matches both B (0x14000000) and BL (0x94000000)
     if ((instr & 0x7c000000) === 0x14000000) {
       // Extract 26-bit offset
-      var addr = instr & 0x03ffffff;
+      let addr = instr & 0x03ffffff;
 
       // Sign-extend 26-bit to 32-bit
       if (addr & 0x02000000) {
@@ -45,7 +45,7 @@ export function decodeBcjArm64(input: Buffer, _properties?: Buffer, _unpackSize?
       }
 
       // Convert absolute to relative: subtract current position (in words)
-      var relAddr = addr - (pos >>> 2);
+      const relAddr = addr - (pos >>> 2);
 
       // Clear old offset and write new one, preserve opcode
       instr = (instr & 0xfc000000) | (relAddr & 0x03ffffff);

@@ -9,7 +9,7 @@ import path from 'path';
 import { TMP_DIR } from './constants.ts';
 
 // Cache directory for downloaded fixtures
-export var CACHE_DIR = path.join(TMP_DIR, 'fixtures');
+export const CACHE_DIR = path.join(TMP_DIR, 'fixtures');
 
 /**
  * Download a file to the cache directory if not already present
@@ -18,7 +18,7 @@ export var CACHE_DIR = path.join(TMP_DIR, 'fixtures');
  * @param callback - Called with (err, filepath)
  */
 export function downloadFixture(url: string, filename: string, callback: (err: Error | null, filepath?: string) => void): void {
-  var filepath = path.join(CACHE_DIR, filename);
+  const filepath = path.join(CACHE_DIR, filename);
 
   // Check if already cached
   fs.stat(filepath, (statErr) => {
@@ -33,7 +33,7 @@ export function downloadFixture(url: string, filename: string, callback: (err: E
 
       // Download using get-remote (caches and works on Node 0.8)
       // API: getRemote(url).file(dest, options?, callback?)
-      var cacheDir = path.dirname(filepath);
+      const cacheDir = path.dirname(filepath);
       getRemote(url).file(cacheDir, { filename: path.basename(filepath) }, (downloadErr?: Error) => {
         if (downloadErr) return callback(downloadErr);
         callback(null, filepath);

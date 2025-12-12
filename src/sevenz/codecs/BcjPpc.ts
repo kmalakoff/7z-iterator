@@ -24,18 +24,18 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  * @returns Unfiltered data
  */
 export function decodeBcjPpc(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
-  var output = bufferFrom(input); // Copy since we modify in place
-  var pos = 0;
+  const output = bufferFrom(input); // Copy since we modify in place
+  let pos = 0;
 
   // Process 4-byte aligned positions
   while (pos + 4 <= output.length) {
     // Read 32-bit value (big-endian)
-    var instr = (output[pos] << 24) | (output[pos + 1] << 16) | (output[pos + 2] << 8) | output[pos + 3];
+    let instr = (output[pos] << 24) | (output[pos + 1] << 16) | (output[pos + 2] << 8) | output[pos + 3];
 
     // Check for B/BL instruction: (instr & 0xFC000003) === 0x48000001
     if ((instr & 0xfc000003) === 0x48000001) {
       // Extract 26-bit offset (bits 2-27, the LI field)
-      var addr = instr & 0x03fffffc;
+      let addr = instr & 0x03fffffc;
 
       // Sign-extend 26-bit to 32-bit
       if (addr & 0x02000000) {
@@ -43,7 +43,7 @@ export function decodeBcjPpc(input: Buffer, _properties?: Buffer, _unpackSize?: 
       }
 
       // Convert absolute to relative: subtract current position
-      var relAddr = addr - pos;
+      const relAddr = addr - pos;
 
       // Clear old offset and write new one
       instr = (instr & 0xfc000003) | (relAddr & 0x03fffffc);

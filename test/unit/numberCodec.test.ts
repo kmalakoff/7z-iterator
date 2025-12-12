@@ -5,8 +5,8 @@ import { encodedSize, readDefinedVector, readNumber, readNumberArray } from '../
 describe('NumberCodec', () => {
   describe('readNumber', () => {
     it('should read single-byte values (0-127)', () => {
-      var buf = bufferFrom([0x00]);
-      var result = readNumber(buf, 0);
+      let buf = bufferFrom([0x00]);
+      let result = readNumber(buf, 0);
       assert.equal(result.value, 0);
       assert.equal(result.bytesRead, 1);
 
@@ -24,8 +24,8 @@ describe('NumberCodec', () => {
     it('should read two-byte values', () => {
       // 0x80 indicates 1 extra byte
       // 10xxxxxx xxxxxxxx
-      var buf = bufferFrom([0x80, 0x00]);
-      var result = readNumber(buf, 0);
+      let buf = bufferFrom([0x80, 0x00]);
+      let result = readNumber(buf, 0);
       assert.equal(result.value, 0);
       assert.equal(result.bytesRead, 2);
 
@@ -43,8 +43,8 @@ describe('NumberCodec', () => {
 
     it('should read three-byte values', () => {
       // 110xxxxx + 2 bytes (little-endian)
-      var buf = bufferFrom([0xc0, 0x00, 0x00]);
-      var result = readNumber(buf, 0);
+      let buf = bufferFrom([0xc0, 0x00, 0x00]);
+      let result = readNumber(buf, 0);
       assert.equal(result.value, 0);
       assert.equal(result.bytesRead, 3);
 
@@ -68,8 +68,8 @@ describe('NumberCodec', () => {
 
       // Min 4-byte (where 3-byte isn't enough): 0xE0 0x00 0x00 0x01
       // highPart=0, extra bytes=0x010000 (little-endian) = 65536
-      var buf = bufferFrom([0xe0, 0x00, 0x00, 0x01]);
-      var result = readNumber(buf, 0);
+      let buf = bufferFrom([0xe0, 0x00, 0x00, 0x01]);
+      let result = readNumber(buf, 0);
       assert.equal(result.value, 65536);
       assert.equal(result.bytesRead, 4);
 
@@ -90,8 +90,8 @@ describe('NumberCodec', () => {
     });
 
     it('should read at specified offset', () => {
-      var buf = bufferFrom([0xff, 0xff, 0x42, 0x00]);
-      var result = readNumber(buf, 2);
+      const buf = bufferFrom([0xff, 0xff, 0x42, 0x00]);
+      const result = readNumber(buf, 2);
       assert.equal(result.value, 66); // 0x42
       assert.equal(result.bytesRead, 1);
     });
@@ -117,8 +117,8 @@ describe('NumberCodec', () => {
   describe('readDefinedVector', () => {
     it('should read all-defined vector', () => {
       // First byte non-zero means all defined
-      var buf = bufferFrom([0x01]);
-      var result = readDefinedVector(buf, 0, 5);
+      const buf = bufferFrom([0x01]);
+      const result = readDefinedVector(buf, 0, 5);
       assert.equal(result.bytesRead, 1);
       assert.equal(result.defined.length, 5);
       assert.ok(result.defined.every((d) => d === true));
@@ -127,8 +127,8 @@ describe('NumberCodec', () => {
     it('should read bitmask vector', () => {
       // First byte 0 means bitmask follows
       // 0b10101000 = 0xA8 means: defined, not, defined, not, defined, not, not, not
-      var buf = bufferFrom([0x00, 0xa8]);
-      var result = readDefinedVector(buf, 0, 5);
+      const buf = bufferFrom([0x00, 0xa8]);
+      const result = readDefinedVector(buf, 0, 5);
       assert.equal(result.bytesRead, 2);
       assert.deepEqual(result.defined, [true, false, true, false, true]);
     });
@@ -136,8 +136,8 @@ describe('NumberCodec', () => {
 
   describe('readNumberArray', () => {
     it('should read array of numbers', () => {
-      var buf = bufferFrom([0x01, 0x02, 0x03]);
-      var result = readNumberArray(buf, 0, 3);
+      const buf = bufferFrom([0x01, 0x02, 0x03]);
+      const result = readNumberArray(buf, 0, 3);
       assert.deepEqual(result.values, [1, 2, 3]);
       assert.equal(result.bytesRead, 3);
     });

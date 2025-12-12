@@ -9,12 +9,12 @@ import os from 'os';
  * - Uses native os.tmpdir on Node 0.10+
  * - Falls back to os-shim on Node 0.8
  */
-var hasTmpdir = typeof os.tmpdir === 'function';
+const hasTmpdir = typeof os.tmpdir === 'function';
 
 export function tmpdir(): string {
   if (hasTmpdir) {
     return os.tmpdir();
   }
-  var osShim = require('os-shim');
+  const osShim = require('os-shim');
   return osShim.tmpdir();
 }

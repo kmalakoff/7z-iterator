@@ -1,6 +1,6 @@
 import Module from 'module';
 
-var _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
+const _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
 
 // LZMA codec - uses native lzma-native when available, falls back to lzma-purejs
 // LZMA properties in 7z are 5 bytes: 1 byte lc/lp/pb + 4 bytes dictionary size (little-endian)
@@ -16,8 +16,8 @@ import { createInputStream, createOutputStream } from './streams.ts';
 
 // Import vendored lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
 // Path accounts for build output in dist/esm/sevenz/codecs/
-var { LZMA } = _require('../../../../assets/lzma-purejs');
-var LzmaDecoder = LZMA.Decoder;
+const { LZMA } = _require('../../../../assets/lzma-purejs');
+const LzmaDecoder = LZMA.Decoder;
 
 /**
  * Parse LZMA properties from 5-byte buffer
@@ -25,12 +25,12 @@ var LzmaDecoder = LZMA.Decoder;
  * Next 4 bytes: dictionary size (little-endian)
  */
 function parseLzmaProperties(properties: Buffer): { lc: number; lp: number; pb: number; dictSize: number } {
-  var propByte = properties[0];
-  var lc = propByte % 9;
-  var remainder = Math.floor(propByte / 9);
-  var lp = remainder % 5;
-  var pb = Math.floor(remainder / 5);
-  var dictSize = properties.readUInt32LE(1);
+  const propByte = properties[0];
+  const lc = propByte % 9;
+  const remainder = Math.floor(propByte / 9);
+  const lp = remainder % 5;
+  const pb = Math.floor(remainder / 5);
+  const dictSize = properties.readUInt32LE(1);
   return { lc: lc, lp: lp, pb: pb, dictSize: dictSize };
 }
 
@@ -47,22 +47,22 @@ export function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: numb
     throw new Error('LZMA requires 5-byte properties');
   }
 
-  var decoder = new LzmaDecoder();
+  const decoder = new LzmaDecoder();
 
   // setDecoderProperties expects array-like with 5 bytes
   if (!decoder.setDecoderProperties(properties)) {
     throw new Error('Invalid LZMA properties');
   }
 
-  var inStream = createInputStream(input, 0, input.length);
+  const inStream = createInputStream(input, 0, input.length);
 
   // Use -1 for unknown size (decoder will use end marker)
-  var size = typeof unpackSize === 'number' ? unpackSize : -1;
+  const size = typeof unpackSize === 'number' ? unpackSize : -1;
 
   // Pre-allocate output stream if size is known (memory optimization)
-  var outStream = createOutputStream(size > 0 ? size : undefined);
+  const outStream = createOutputStream(size > 0 ? size : undefined);
 
-  var success = decoder.code(inStream, outStream, size);
+  const success = decoder.code(inStream, outStream, size);
   if (!success) {
     throw new Error('LZMA decompression failed');
   }
@@ -79,8 +79,8 @@ export function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: numb
 export function createLzmaDecoder(properties?: Buffer, _unpackSize?: number): Transform {
   // Try native decoder first (available on Node.js 8+ with lzma-native installed)
   if (hasNativeLzma && properties && properties.length >= 5) {
-    var props = parseLzmaProperties(properties);
-    var nativeDecoder = createNativeLzma1Decoder(props.lc, props.lp, props.pb, props.dictSize);
+    const props = parseLzmaProperties(properties);
+    const nativeDecoder = createNativeLzma1Decoder(props.lc, props.lp, props.pb, props.dictSize);
     if (nativeDecoder) {
       return nativeDecoder;
     }

@@ -19,9 +19,9 @@ import { stringEndsWith } from '../lib/compat.ts';
 import { ensureFixture, getFixturePath } from '../lib/download.ts';
 
 // Node.js Windows x64 7z archive - uses LZMA2:26 LZMA:20 BCJ2 codecs
-var NODE_7Z_URL = 'https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.7z';
-var NODE_7Z_FILENAME = 'node-v22.12.0-win-x64.7z';
-var _EXPECTED_ENTRY_COUNT = 2721; // Number of entries in the archive
+const NODE_7Z_URL = 'https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.7z';
+const NODE_7Z_FILENAME = 'node-v22.12.0-win-x64.7z';
+const _EXPECTED_ENTRY_COUNT = 2721; // Number of entries in the archive
 
 describe('BCJ2 archives (large varints)', () => {
   // Download the fixture before running tests (cached after first download)
@@ -29,9 +29,9 @@ describe('BCJ2 archives (large varints)', () => {
 
   describe('Node.js Windows 7z', () => {
     it('should iterate BCJ2 archive entries', (done) => {
-      var filepath = getFixturePath(NODE_7Z_FILENAME);
-      var iterator = new SevenZipIterator(filepath);
-      var entries: string[] = [];
+      const filepath = getFixturePath(NODE_7Z_FILENAME);
+      const iterator = new SevenZipIterator(filepath);
+      const entries: string[] = [];
 
       iterator.forEach(
         (entry): undefined => {
@@ -49,7 +49,7 @@ describe('BCJ2 archives (large varints)', () => {
           assert.ok(entries[0].indexOf('node-v22') >= 0, 'First entry should contain node version');
 
           // Should have node.exe somewhere in the list
-          var hasNodeExe = entries.some((e) => e.indexOf('node.exe') >= 0);
+          const hasNodeExe = entries.some((e) => e.indexOf('node.exe') >= 0);
           assert.ok(hasNodeExe, 'Should contain node.exe');
 
           done();
@@ -61,9 +61,9 @@ describe('BCJ2 archives (large varints)', () => {
       // This test specifically validates that the encoded header's packPos
       // (which is a large multi-byte varint) is correctly decoded.
       // The bug was that varints were decoded with wrong byte order.
-      var filepath = getFixturePath(NODE_7Z_FILENAME);
-      var iterator = new SevenZipIterator(filepath);
-      var entryCount = 0;
+      const filepath = getFixturePath(NODE_7Z_FILENAME);
+      const iterator = new SevenZipIterator(filepath);
+      let entryCount = 0;
 
       iterator.forEach(
         (): undefined => {
@@ -92,9 +92,9 @@ describe('BCJ2 archives (large varints)', () => {
       // BCJ2 splits data into 4 streams (main + 3 call/jump streams) and requires
       // special decoding before LZMA decompression.
       // Note: Only node.exe uses BCJ2 compression in this archive
-      var filepath = getFixturePath(NODE_7Z_FILENAME);
-      var iterator = new SevenZipIterator(filepath);
-      var targetDir = path.join(path.dirname(filepath), 'bcj2-extract-test');
+      const filepath = getFixturePath(NODE_7Z_FILENAME);
+      const iterator = new SevenZipIterator(filepath);
+      const targetDir = path.join(path.dirname(filepath), 'bcj2-extract-test');
 
       // Clean up before test
       safeRm(targetDir, () => {
@@ -102,7 +102,7 @@ describe('BCJ2 archives (large varints)', () => {
           if (err) return done(err);
 
           // Find and extract node.exe (it's the BCJ2-compressed file)
-          var extracted = false;
+          let extracted = false;
           iterator.forEach(
             (entry, callback): undefined => {
               // Look for node.exe - this is the only BCJ2-compressed file
@@ -131,7 +131,7 @@ describe('BCJ2 archives (large varints)', () => {
               }
 
               // Verify the extracted file exists and has expected size
-              var exePath = path.join(targetDir, 'node.exe');
+              const exePath = path.join(targetDir, 'node.exe');
               fs.stat(exePath, (err, stats) => {
                 if (err) {
                   safeRm(targetDir, () => {
@@ -145,8 +145,8 @@ describe('BCJ2 archives (large varints)', () => {
                   assert.ok(stats.size > 80000000, `node.exe should be large, got ${stats.size} bytes`);
 
                   // Read first few bytes and verify it's a PE executable (MZ header)
-                  var fd = fs.openSync(exePath, 'r');
-                  var buf = allocBuffer(2);
+                  const fd = fs.openSync(exePath, 'r');
+                  const buf = allocBuffer(2);
                   fs.readSync(fd, buf, 0, 2, 0);
                   fs.closeSync(fd);
 

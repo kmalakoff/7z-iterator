@@ -8,7 +8,7 @@ import path from 'path';
 import { BufferSource, FileSource } from '../sevenz/SevenZipParser.ts';
 
 // Default memory threshold: 100 MB
-var DEFAULT_MEMORY_THRESHOLD = 100 * 1024 * 1024;
+const DEFAULT_MEMORY_THRESHOLD = 100 * 1024 * 1024;
 
 export interface StreamToSourceOptions {
   memoryThreshold?: number;
@@ -32,19 +32,19 @@ export type Callback = (error?: Error, result?: SourceResult) => void;
  * 3. When done, return BufferSource for memory buffer or FileSource for temp file
  */
 export default function streamToSource(stream: NodeJS.ReadableStream, options: StreamToSourceOptions, callback: Callback): void {
-  var threshold = options.memoryThreshold !== undefined ? options.memoryThreshold : DEFAULT_MEMORY_THRESHOLD;
-  var tempPath = options.tempPath;
+  const threshold = options.memoryThreshold !== undefined ? options.memoryThreshold : DEFAULT_MEMORY_THRESHOLD;
+  const tempPath = options.tempPath;
 
-  var chunks: Buffer[] = [];
-  var totalSize = 0;
-  var writeStream: fs.WriteStream | null = null;
-  var useTempFile = false;
+  let chunks: Buffer[] = [];
+  let totalSize = 0;
+  let writeStream: fs.WriteStream | null = null;
+  let useTempFile = false;
 
-  var end = once(callback);
+  const end = once(callback);
 
   function onData(chunk: Buffer | string): void {
     // Convert string chunks to Buffer
-    var buf = typeof chunk === 'string' ? bufferFrom(chunk) : chunk;
+    const buf = typeof chunk === 'string' ? bufferFrom(chunk) : chunk;
     totalSize += buf.length;
 
     if (!useTempFile && totalSize <= threshold) {
@@ -63,7 +63,7 @@ export default function streamToSource(stream: NodeJS.ReadableStream, options: S
       writeStream = fs.createWriteStream(tempPath);
 
       // Write all buffered chunks to temp file
-      for (var i = 0; i < chunks.length; i++) {
+      for (let i = 0; i < chunks.length; i++) {
         writeStream.write(chunks[i]);
       }
       chunks = []; // Allow GC
@@ -81,7 +81,7 @@ export default function streamToSource(stream: NodeJS.ReadableStream, options: S
   function onEnd(): void {
     if (useTempFile && writeStream && tempPath) {
       // Close write stream, then open for reading
-      var filePath = tempPath; // Capture for closure
+      const filePath = tempPath; // Capture for closure
       writeStream.end(() => {
         fs.open(filePath, 'r', (err, fd) => {
           if (err) return end(err);
@@ -100,7 +100,7 @@ export default function streamToSource(stream: NodeJS.ReadableStream, options: S
       });
     } else {
       // Use memory buffer
-      var fullBuffer = Buffer.concat(chunks);
+      const fullBuffer = Buffer.concat(chunks);
       end(null, {
         source: new BufferSource(fullBuffer),
       });
