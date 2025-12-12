@@ -38,7 +38,7 @@ export interface NumberReadResult {
  * @returns Object with value and number of bytes consumed
  */
 export function readNumber(buf: Buffer, offset: number): NumberReadResult {
-  var firstByte = buf[offset];
+  const firstByte = buf[offset];
 
   // Special case: 0xFF means 8 extra bytes (full 64-bit value)
   if (firstByte === 0xff) {
@@ -50,8 +50,8 @@ export function readNumber(buf: Buffer, offset: number): NumberReadResult {
 
   // Determine number of extra bytes based on first byte value thresholds
   // This matches the 7z format specification
-  var extraBytes = 0;
-  var mask = 0x80;
+  let extraBytes = 0;
+  let mask = 0x80;
 
   if (firstByte <= 0x7f) {
     extraBytes = 0;
@@ -81,11 +81,11 @@ export function readNumber(buf: Buffer, offset: number): NumberReadResult {
   }
 
   // Get high part from first byte (bits below the length indicator)
-  var highPart = firstByte & (mask - 1);
+  const highPart = firstByte & (mask - 1);
 
   // Read extra bytes as LITTLE-ENDIAN
-  var value = 0;
-  for (var i = 0; i < extraBytes; i++) {
+  let value = 0;
+  for (let i = 0; i < extraBytes; i++) {
     value += buf[offset + 1 + i] * 256 ** i;
   }
 
@@ -149,23 +149,23 @@ export function readBoolean(buf: Buffer, offset: number): boolean {
  * @returns Object with defined array and bytes consumed
  */
 export function readDefinedVector(buf: Buffer, offset: number, count: number): { defined: boolean[]; bytesRead: number } {
-  var allDefined = buf[offset] !== 0;
-  var bytesRead = 1;
-  var defined: boolean[] = [];
+  const allDefined = buf[offset] !== 0;
+  let bytesRead = 1;
+  const defined: boolean[] = [];
 
   if (allDefined) {
     // All items are defined
-    for (var i = 0; i < count; i++) {
+    for (let i = 0; i < count; i++) {
       defined.push(true);
     }
   } else {
     // Read bitmask
-    var bitsNeeded = count;
-    var bytesNeeded = Math.ceil(bitsNeeded / 8);
+    const bitsNeeded = count;
+    const bytesNeeded = Math.ceil(bitsNeeded / 8);
 
-    for (var byteIdx = 0; byteIdx < bytesNeeded; byteIdx++) {
-      var byte = buf[offset + 1 + byteIdx];
-      for (var bit = 7; bit >= 0 && defined.length < count; bit--) {
+    for (let byteIdx = 0; byteIdx < bytesNeeded; byteIdx++) {
+      const byte = buf[offset + 1 + byteIdx];
+      for (let bit = 7; bit >= 0 && defined.length < count; bit--) {
         defined.push((byte & (1 << bit)) !== 0);
       }
     }
@@ -183,11 +183,11 @@ export function readDefinedVector(buf: Buffer, offset: number, count: number): {
  * @returns Object with values array and bytes consumed
  */
 export function readNumberArray(buf: Buffer, offset: number, count: number): { values: number[]; bytesRead: number } {
-  var values: number[] = [];
-  var totalBytesRead = 0;
+  const values: number[] = [];
+  let totalBytesRead = 0;
 
-  for (var i = 0; i < count; i++) {
-    var result = readNumber(buf, offset + totalBytesRead);
+  for (let i = 0; i < count; i++) {
+    const result = readNumber(buf, offset + totalBytesRead);
     values.push(result.value);
     totalBytesRead += result.bytesRead;
   }

@@ -70,8 +70,8 @@ export function parseSignatureHeader(buf: Buffer): SignatureHeader {
   }
 
   // Read version
-  var majorVersion = buf[6];
-  var minorVersion = buf[7];
+  const majorVersion = buf[6];
+  const minorVersion = buf[7];
 
   // Version check - we support 0.x (current is 0.4)
   if (majorVersion > 0) {
@@ -79,7 +79,7 @@ export function parseSignatureHeader(buf: Buffer): SignatureHeader {
   }
 
   // Read start header CRC (CRC of the next 20 bytes)
-  var startHeaderCRC = buf.readUInt32LE(8);
+  const startHeaderCRC = buf.readUInt32LE(8);
 
   // Verify start header CRC
   if (!verifyCrc32Region(buf, 12, 20, startHeaderCRC)) {
@@ -87,9 +87,9 @@ export function parseSignatureHeader(buf: Buffer): SignatureHeader {
   }
 
   // Read next header location
-  var nextHeaderOffset = readUInt64LE(buf, 12);
-  var nextHeaderSize = readUInt64LE(buf, 20);
-  var nextHeaderCRC = buf.readUInt32LE(28);
+  const nextHeaderOffset = readUInt64LE(buf, 12);
+  const nextHeaderSize = readUInt64LE(buf, 20);
+  const nextHeaderCRC = buf.readUInt32LE(28);
 
   return {
     majorVersion: majorVersion,
@@ -110,10 +110,10 @@ export function parseEncodedHeader(buf: Buffer, expectedCRC: number): { streamsI
     throw createCodedError('Encoded header CRC mismatch', ErrorCode.CRC_MISMATCH);
   }
 
-  var offset = 0;
+  let offset = 0;
 
   // Read property ID
-  var propertyId = buf[offset++];
+  const propertyId = buf[offset++];
 
   // Handle kEncodedHeader - means the header itself is compressed
   if (propertyId === PropertyId.kEncodedHeader) {
@@ -135,13 +135,13 @@ export function parseEncodedHeader(buf: Buffer, expectedCRC: number): { streamsI
  * Used by parseEncodedHeader and for decompressed headers
  */
 export function parseHeaderContent(buf: Buffer, offset: number): { streamsInfo?: StreamsInfo; filesInfo: FileInfo[] } {
-  var result: { streamsInfo?: StreamsInfo; filesInfo: FileInfo[] } = {
+  const result: { streamsInfo?: StreamsInfo; filesInfo: FileInfo[] } = {
     filesInfo: [],
   };
 
   // Parse header contents
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
 
     if (propertyId === PropertyId.kEnd) {
       break;
@@ -156,13 +156,13 @@ export function parseHeaderContent(buf: Buffer, offset: number): { streamsInfo?:
         offset = skipStreamsInfo(buf, offset);
         break;
       case PropertyId.kMainStreamsInfo: {
-        var streamsResult = parseStreamsInfo(buf, offset);
+        const streamsResult = parseStreamsInfo(buf, offset);
         result.streamsInfo = streamsResult.info;
         offset = streamsResult.offset;
         break;
       }
       case PropertyId.kFilesInfo: {
-        var filesResult = parseFilesInfo(buf, offset);
+        const filesResult = parseFilesInfo(buf, offset);
         result.filesInfo = filesResult.files;
         offset = filesResult.offset;
         break;
@@ -179,7 +179,7 @@ export function parseHeaderContent(buf: Buffer, offset: number): { streamsInfo?:
  * Parse StreamsInfo block
  */
 function parseStreamsInfo(buf: Buffer, offset: number): { info: StreamsInfo; offset: number } {
-  var info: StreamsInfo = {
+  const info: StreamsInfo = {
     packPos: 0,
     packSizes: [],
     folders: [],
@@ -188,7 +188,7 @@ function parseStreamsInfo(buf: Buffer, offset: number): { info: StreamsInfo; off
   };
 
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
 
     if (propertyId === PropertyId.kEnd) {
       break;
@@ -196,7 +196,7 @@ function parseStreamsInfo(buf: Buffer, offset: number): { info: StreamsInfo; off
 
     switch (propertyId) {
       case PropertyId.kPackInfo: {
-        var packResult = parsePackInfo(buf, offset);
+        const packResult = parsePackInfo(buf, offset);
         info.packPos = packResult.packPos;
         info.packSizes = packResult.packSizes;
         info.packCRCs = packResult.packCRCs;
@@ -204,13 +204,13 @@ function parseStreamsInfo(buf: Buffer, offset: number): { info: StreamsInfo; off
         break;
       }
       case PropertyId.kUnpackInfo: {
-        var unpackResult = parseUnpackInfo(buf, offset);
+        const unpackResult = parseUnpackInfo(buf, offset);
         info.folders = unpackResult.folders;
         offset = unpackResult.offset;
         break;
       }
       case PropertyId.kSubStreamsInfo: {
-        var subResult = parseSubStreamsInfo(buf, offset, info.folders);
+        const subResult = parseSubStreamsInfo(buf, offset, info.folders);
         info.numUnpackStreamsPerFolder = subResult.numUnpackStreamsPerFolder;
         info.unpackSizes = subResult.unpackSizes;
         info.unpackCRCs = subResult.unpackCRCs;
@@ -224,10 +224,10 @@ function parseStreamsInfo(buf: Buffer, offset: number): { info: StreamsInfo; off
 
   // If no SubStreamsInfo, each folder produces one file
   if (info.unpackSizes.length === 0 && info.folders.length > 0) {
-    for (var i = 0; i < info.folders.length; i++) {
-      var folder = info.folders[i];
+    for (let i = 0; i < info.folders.length; i++) {
+      const folder = info.folders[i];
       // Get the final unpack size (last coder's output)
-      var finalSize = folder.unpackSizes[folder.unpackSizes.length - 1];
+      const finalSize = folder.unpackSizes[folder.unpackSizes.length - 1];
       info.unpackSizes.push(finalSize);
       info.numUnpackStreamsPerFolder.push(1);
     }
@@ -241,36 +241,36 @@ function parseStreamsInfo(buf: Buffer, offset: number): { info: StreamsInfo; off
  */
 function parsePackInfo(buf: Buffer, offset: number): { packPos: number; packSizes: number[]; packCRCs?: number[]; offset: number } {
   // Pack position
-  var packPosResult = readNumber(buf, offset);
-  var packPos = packPosResult.value;
+  const packPosResult = readNumber(buf, offset);
+  const packPos = packPosResult.value;
   offset += packPosResult.bytesRead;
 
   // Number of pack streams
-  var numPackResult = readNumber(buf, offset);
-  var numPackStreams = numPackResult.value;
+  const numPackResult = readNumber(buf, offset);
+  const numPackStreams = numPackResult.value;
   offset += numPackResult.bytesRead;
 
-  var packSizes: number[] = [];
-  var packCRCs: number[] | undefined;
+  const packSizes: number[] = [];
+  let packCRCs: number[] | undefined;
 
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
 
     if (propertyId === PropertyId.kEnd) {
       break;
     }
 
     if (propertyId === PropertyId.kSize) {
-      for (var i = 0; i < numPackStreams; i++) {
-        var sizeResult = readNumber(buf, offset);
+      for (let i = 0; i < numPackStreams; i++) {
+        const sizeResult = readNumber(buf, offset);
         packSizes.push(sizeResult.value);
         offset += sizeResult.bytesRead;
       }
     } else if (propertyId === PropertyId.kCRC) {
       packCRCs = [];
-      var definedResult = readDefinedVector(buf, offset, numPackStreams);
+      const definedResult = readDefinedVector(buf, offset, numPackStreams);
       offset += definedResult.bytesRead;
-      for (var j = 0; j < numPackStreams; j++) {
+      for (let j = 0; j < numPackStreams; j++) {
         if (definedResult.defined[j]) {
           packCRCs.push(buf.readUInt32LE(offset));
           offset += 4;
@@ -288,10 +288,10 @@ function parsePackInfo(buf: Buffer, offset: number): { packPos: number; packSize
  * Parse UnpackInfo block
  */
 function parseUnpackInfo(buf: Buffer, offset: number): { folders: Folder[]; offset: number } {
-  var folders: Folder[] = [];
+  const folders: Folder[] = [];
 
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
 
     if (propertyId === PropertyId.kEnd) {
       break;
@@ -299,43 +299,43 @@ function parseUnpackInfo(buf: Buffer, offset: number): { folders: Folder[]; offs
 
     if (propertyId === PropertyId.kFolder) {
       // Number of folders
-      var numFoldersResult = readNumber(buf, offset);
-      var numFolders = numFoldersResult.value;
+      const numFoldersResult = readNumber(buf, offset);
+      const numFolders = numFoldersResult.value;
       offset += numFoldersResult.bytesRead;
 
       // External flag
-      var external = buf[offset++];
+      const external = buf[offset++];
       if (external !== 0) {
         throw createCodedError('External folders not supported', ErrorCode.CORRUPT_HEADER);
       }
 
       // Parse each folder
-      for (var i = 0; i < numFolders; i++) {
-        var folderResult = parseFolder(buf, offset);
+      for (let i = 0; i < numFolders; i++) {
+        const folderResult = parseFolder(buf, offset);
         folders.push(folderResult.folder);
         offset = folderResult.offset;
       }
     } else if (propertyId === PropertyId.kCodersUnpackSize) {
       // Unpack sizes for each coder output
-      for (var j = 0; j < folders.length; j++) {
-        var folder = folders[j];
+      for (let j = 0; j < folders.length; j++) {
+        const folder = folders[j];
         folder.unpackSizes = [];
         // One unpack size per coder output stream
-        var numOutputs = 0;
-        for (var k = 0; k < folder.coders.length; k++) {
+        let numOutputs = 0;
+        for (let k = 0; k < folder.coders.length; k++) {
           numOutputs += folder.coders[k].numOutStreams;
         }
-        for (var l = 0; l < numOutputs; l++) {
-          var sizeResult = readNumber(buf, offset);
+        for (let l = 0; l < numOutputs; l++) {
+          const sizeResult = readNumber(buf, offset);
           folder.unpackSizes.push(sizeResult.value);
           offset += sizeResult.bytesRead;
         }
       }
     } else if (propertyId === PropertyId.kCRC) {
       // CRCs for folders
-      var definedResult = readDefinedVector(buf, offset, folders.length);
+      const definedResult = readDefinedVector(buf, offset, folders.length);
       offset += definedResult.bytesRead;
-      for (var m = 0; m < folders.length; m++) {
+      for (let m = 0; m < folders.length; m++) {
         folders[m].hasCRC = definedResult.defined[m];
         if (definedResult.defined[m]) {
           folders[m].unpackCRC = buf.readUInt32LE(offset);
@@ -353,42 +353,42 @@ function parseUnpackInfo(buf: Buffer, offset: number): { folders: Folder[]; offs
  */
 function parseFolder(buf: Buffer, offset: number): { folder: Folder; offset: number } {
   // Number of coders
-  var numCodersResult = readNumber(buf, offset);
-  var numCoders = numCodersResult.value;
+  const numCodersResult = readNumber(buf, offset);
+  const numCoders = numCodersResult.value;
   offset += numCodersResult.bytesRead;
 
-  var coders: Coder[] = [];
-  var numInStreamsTotal = 0;
-  var numOutStreamsTotal = 0;
+  const coders: Coder[] = [];
+  let numInStreamsTotal = 0;
+  let numOutStreamsTotal = 0;
 
-  for (var i = 0; i < numCoders; i++) {
-    var flags = buf[offset++];
-    var idSize = flags & 0x0f;
-    var isComplex = (flags & 0x10) !== 0;
-    var hasAttributes = (flags & 0x20) !== 0;
+  for (let i = 0; i < numCoders; i++) {
+    const flags = buf[offset++];
+    const idSize = flags & 0x0f;
+    const isComplex = (flags & 0x10) !== 0;
+    const hasAttributes = (flags & 0x20) !== 0;
 
     // Read codec ID
-    var id: number[] = [];
-    for (var j = 0; j < idSize; j++) {
+    const id: number[] = [];
+    for (let j = 0; j < idSize; j++) {
       id.push(buf[offset++]);
     }
 
-    var numInStreams = 1;
-    var numOutStreams = 1;
+    let numInStreams = 1;
+    let numOutStreams = 1;
 
     if (isComplex) {
-      var inResult = readNumber(buf, offset);
+      const inResult = readNumber(buf, offset);
       numInStreams = inResult.value;
       offset += inResult.bytesRead;
 
-      var outResult = readNumber(buf, offset);
+      const outResult = readNumber(buf, offset);
       numOutStreams = outResult.value;
       offset += outResult.bytesRead;
     }
 
-    var properties: Buffer | undefined;
+    let properties: Buffer | undefined;
     if (hasAttributes) {
-      var propsLenResult = readNumber(buf, offset);
+      const propsLenResult = readNumber(buf, offset);
       offset += propsLenResult.bytesRead;
       properties = buf.slice(offset, offset + propsLenResult.value);
       offset += propsLenResult.value;
@@ -406,14 +406,14 @@ function parseFolder(buf: Buffer, offset: number): { folder: Folder; offset: num
   }
 
   // Bind pairs
-  var numBindPairs = numOutStreamsTotal - 1;
-  var bindPairs: { inIndex: number; outIndex: number }[] = [];
+  const numBindPairs = numOutStreamsTotal - 1;
+  const bindPairs: { inIndex: number; outIndex: number }[] = [];
 
-  for (var k = 0; k < numBindPairs; k++) {
-    var inIndexResult = readNumber(buf, offset);
+  for (let k = 0; k < numBindPairs; k++) {
+    const inIndexResult = readNumber(buf, offset);
     offset += inIndexResult.bytesRead;
 
-    var outIndexResult = readNumber(buf, offset);
+    const outIndexResult = readNumber(buf, offset);
     offset += outIndexResult.bytesRead;
 
     bindPairs.push({
@@ -423,14 +423,14 @@ function parseFolder(buf: Buffer, offset: number): { folder: Folder; offset: num
   }
 
   // Packed stream indices
-  var numPackedStreams = numInStreamsTotal - numBindPairs;
-  var packedStreams: number[] = [];
+  const numPackedStreams = numInStreamsTotal - numBindPairs;
+  const packedStreams: number[] = [];
 
   if (numPackedStreams === 1) {
     // Find the unbound input stream
-    for (var m = 0; m < numInStreamsTotal; m++) {
-      var isBound = false;
-      for (var n = 0; n < bindPairs.length; n++) {
+    for (let m = 0; m < numInStreamsTotal; m++) {
+      let isBound = false;
+      for (let n = 0; n < bindPairs.length; n++) {
         if (bindPairs[n].inIndex === m) {
           isBound = true;
           break;
@@ -442,8 +442,8 @@ function parseFolder(buf: Buffer, offset: number): { folder: Folder; offset: num
       }
     }
   } else {
-    for (var p = 0; p < numPackedStreams; p++) {
-      var indexResult = readNumber(buf, offset);
+    for (let p = 0; p < numPackedStreams; p++) {
+      const indexResult = readNumber(buf, offset);
       packedStreams.push(indexResult.value);
       offset += indexResult.bytesRead;
     }
@@ -465,37 +465,37 @@ function parseFolder(buf: Buffer, offset: number): { folder: Folder; offset: num
  * Parse SubStreamsInfo block
  */
 function parseSubStreamsInfo(buf: Buffer, offset: number, folders: Folder[]): { numUnpackStreamsPerFolder: number[]; unpackSizes: number[]; unpackCRCs?: number[]; offset: number } {
-  var numUnpackStreamsPerFolder: number[] = [];
-  var unpackSizes: number[] = [];
-  var unpackCRCs: number[] | undefined;
+  const numUnpackStreamsPerFolder: number[] = [];
+  const unpackSizes: number[] = [];
+  let unpackCRCs: number[] | undefined;
 
   // Default: 1 file per folder
-  for (var i = 0; i < folders.length; i++) {
+  for (let i = 0; i < folders.length; i++) {
     numUnpackStreamsPerFolder.push(1);
   }
 
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
 
     if (propertyId === PropertyId.kEnd) {
       break;
     }
 
     if (propertyId === PropertyId.kNumUnpackStream) {
-      for (var j = 0; j < folders.length; j++) {
-        var numResult = readNumber(buf, offset);
+      for (let j = 0; j < folders.length; j++) {
+        const numResult = readNumber(buf, offset);
         numUnpackStreamsPerFolder[j] = numResult.value;
         offset += numResult.bytesRead;
       }
     } else if (propertyId === PropertyId.kSize) {
-      for (var k = 0; k < folders.length; k++) {
-        var numStreams = numUnpackStreamsPerFolder[k];
+      for (let k = 0; k < folders.length; k++) {
+        const numStreams = numUnpackStreamsPerFolder[k];
         if (numStreams === 0) continue;
 
         // Read sizes for all but last stream in folder (last is calculated)
-        var remaining = folders[k].unpackSizes[folders[k].unpackSizes.length - 1];
-        for (var l = 0; l < numStreams - 1; l++) {
-          var sizeResult = readNumber(buf, offset);
+        let remaining = folders[k].unpackSizes[folders[k].unpackSizes.length - 1];
+        for (let l = 0; l < numStreams - 1; l++) {
+          const sizeResult = readNumber(buf, offset);
           unpackSizes.push(sizeResult.value);
           remaining -= sizeResult.value;
           offset += sizeResult.bytesRead;
@@ -505,9 +505,9 @@ function parseSubStreamsInfo(buf: Buffer, offset: number, folders: Folder[]): { 
       }
     } else if (propertyId === PropertyId.kCRC) {
       // Count files that need CRC
-      var numFiles = 0;
-      for (var m = 0; m < folders.length; m++) {
-        var numStreamsInFolder = numUnpackStreamsPerFolder[m];
+      let numFiles = 0;
+      for (let m = 0; m < folders.length; m++) {
+        const numStreamsInFolder = numUnpackStreamsPerFolder[m];
         // Only count if folder doesn't have CRC or has multiple streams
         if (!folders[m].hasCRC || numStreamsInFolder > 1) {
           numFiles += numStreamsInFolder;
@@ -515,9 +515,9 @@ function parseSubStreamsInfo(buf: Buffer, offset: number, folders: Folder[]): { 
       }
 
       unpackCRCs = [];
-      var definedResult = readDefinedVector(buf, offset, numFiles);
+      const definedResult = readDefinedVector(buf, offset, numFiles);
       offset += definedResult.bytesRead;
-      for (var n = 0; n < numFiles; n++) {
+      for (let n = 0; n < numFiles; n++) {
         if (definedResult.defined[n]) {
           unpackCRCs.push(buf.readUInt32LE(offset));
           offset += 4;
@@ -530,8 +530,8 @@ function parseSubStreamsInfo(buf: Buffer, offset: number, folders: Folder[]): { 
 
   // If no sizes specified, use folder unpack sizes
   if (unpackSizes.length === 0) {
-    for (var p = 0; p < folders.length; p++) {
-      var folder = folders[p];
+    for (let p = 0; p < folders.length; p++) {
+      const folder = folders[p];
       unpackSizes.push(folder.unpackSizes[folder.unpackSizes.length - 1]);
     }
   }
@@ -544,13 +544,13 @@ function parseSubStreamsInfo(buf: Buffer, offset: number, folders: Folder[]): { 
  */
 function parseFilesInfo(buf: Buffer, offset: number): { files: FileInfo[]; offset: number } {
   // Number of files
-  var numFilesResult = readNumber(buf, offset);
-  var numFiles = numFilesResult.value;
+  const numFilesResult = readNumber(buf, offset);
+  const numFiles = numFilesResult.value;
   offset += numFilesResult.bytesRead;
 
   // Initialize files array
-  var files: FileInfo[] = [];
-  for (var i = 0; i < numFiles; i++) {
+  const files: FileInfo[] = [];
+  for (let i = 0; i < numFiles; i++) {
     files.push({
       name: '',
       size: 0,
@@ -560,35 +560,35 @@ function parseFilesInfo(buf: Buffer, offset: number): { files: FileInfo[]; offse
     });
   }
 
-  var emptyStreamFlags: boolean[] = [];
-  var emptyFileFlags: boolean[] = [];
+  let emptyStreamFlags: boolean[] = [];
+  let emptyFileFlags: boolean[] = [];
 
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
 
     if (propertyId === PropertyId.kEnd) {
       break;
     }
 
     // Read property size
-    var propSizeResult = readNumber(buf, offset);
-    var propSize = propSizeResult.value;
+    const propSizeResult = readNumber(buf, offset);
+    const propSize = propSizeResult.value;
     offset += propSizeResult.bytesRead;
 
-    var propEnd = offset + propSize;
+    const propEnd = offset + propSize;
 
     switch (propertyId) {
       case PropertyId.kEmptyStream:
         emptyStreamFlags = readBoolVector(buf, offset, numFiles);
         // Mark files that don't have streams
-        for (var j = 0; j < numFiles; j++) {
+        for (let j = 0; j < numFiles; j++) {
           files[j].hasStream = !emptyStreamFlags[j];
         }
         break;
 
       case PropertyId.kEmptyFile: {
-        var numEmptyStreams = 0;
-        for (var k = 0; k < emptyStreamFlags.length; k++) {
+        let numEmptyStreams = 0;
+        for (let k = 0; k < emptyStreamFlags.length; k++) {
           if (emptyStreamFlags[k]) numEmptyStreams++;
         }
         emptyFileFlags = readBoolVector(buf, offset, numEmptyStreams);
@@ -596,13 +596,13 @@ function parseFilesInfo(buf: Buffer, offset: number): { files: FileInfo[]; offse
       }
 
       case PropertyId.kAnti: {
-        var numAnti = 0;
-        for (var l = 0; l < emptyStreamFlags.length; l++) {
+        let numAnti = 0;
+        for (let l = 0; l < emptyStreamFlags.length; l++) {
           if (emptyStreamFlags[l]) numAnti++;
         }
-        var antiFlags = readBoolVector(buf, offset, numAnti);
-        var antiIdx = 0;
-        for (var m = 0; m < numFiles; m++) {
+        const antiFlags = readBoolVector(buf, offset, numAnti);
+        let antiIdx = 0;
+        for (let m = 0; m < numFiles; m++) {
           if (emptyStreamFlags[m]) {
             files[m].isAntiFile = antiFlags[antiIdx++];
           }
@@ -643,8 +643,8 @@ function parseFilesInfo(buf: Buffer, offset: number): { files: FileInfo[]; offse
   }
 
   // Determine directories from empty stream + not empty file
-  var emptyIdx = 0;
-  for (var n = 0; n < numFiles; n++) {
+  let emptyIdx = 0;
+  for (let n = 0; n < numFiles; n++) {
     if (emptyStreamFlags[n]) {
       // Empty stream - could be directory or empty file
       if (emptyIdx < emptyFileFlags.length && emptyFileFlags[emptyIdx]) {
@@ -663,11 +663,11 @@ function parseFilesInfo(buf: Buffer, offset: number): { files: FileInfo[]; offse
  * Read a boolean vector (bit-packed)
  */
 function readBoolVector(buf: Buffer, offset: number, count: number): boolean[] {
-  var result: boolean[] = [];
-  var byteIdx = 0;
-  var bitMask = 0x80;
+  const result: boolean[] = [];
+  let byteIdx = 0;
+  let bitMask = 0x80;
 
-  for (var i = 0; i < count; i++) {
+  for (let i = 0; i < count; i++) {
     result.push((buf[offset + byteIdx] & bitMask) !== 0);
     bitMask = bitMask >>> 1;
     if (bitMask === 0) {
@@ -684,16 +684,16 @@ function readBoolVector(buf: Buffer, offset: number, count: number): boolean[] {
  */
 function parseFileNames(buf: Buffer, offset: number, files: FileInfo[]): number {
   // External flag
-  var external = buf[offset++];
+  const external = buf[offset++];
   if (external !== 0) {
     throw createCodedError('External file names not supported', ErrorCode.CORRUPT_HEADER);
   }
 
   // Names are UTF-16LE, null-terminated
-  for (var i = 0; i < files.length; i++) {
-    var nameChars: number[] = [];
+  for (let i = 0; i < files.length; i++) {
+    const nameChars: number[] = [];
     while (offset < buf.length) {
-      var charCode = buf.readUInt16LE(offset);
+      const charCode = buf.readUInt16LE(offset);
       offset += 2;
       if (charCode === 0) break;
       nameChars.push(charCode);
@@ -709,25 +709,25 @@ function parseFileNames(buf: Buffer, offset: number, files: FileInfo[]): number 
  */
 function parseFileTimes(buf: Buffer, offset: number, files: FileInfo[], timeType: 'ctime' | 'atime' | 'mtime'): number {
   // Read defined vector (allDefined byte + optional bitmask)
-  var definedResult = readDefinedVector(buf, offset, files.length);
+  const definedResult = readDefinedVector(buf, offset, files.length);
   offset += definedResult.bytesRead;
 
   // External flag - 0x00 means data follows inline, non-zero means external stream
-  var external = buf[offset++];
+  const external = buf[offset++];
   if (external !== 0) {
     throw createCodedError('External file times not supported', ErrorCode.UNSUPPORTED_FEATURE);
   }
 
   // Read times
-  for (var i = 0; i < files.length; i++) {
+  for (let i = 0; i < files.length; i++) {
     if (definedResult.defined[i]) {
-      var filetime = readUInt64LE(buf, offset);
+      const filetime = readUInt64LE(buf, offset);
       offset += 8;
       // Convert FILETIME (100ns since 1601) to JavaScript Date
       // FILETIME epoch: 1601-01-01
       // JS Date epoch: 1970-01-01
       // Difference: 11644473600 seconds
-      var ms = filetime / 10000 - 11644473600000;
+      const ms = filetime / 10000 - 11644473600000;
       files[i][timeType] = new Date(ms);
     }
   }
@@ -740,17 +740,17 @@ function parseFileTimes(buf: Buffer, offset: number, files: FileInfo[], timeType
  */
 function parseAttributes(buf: Buffer, offset: number, files: FileInfo[]): number {
   // Read defined vector (allDefined byte + optional bitmask)
-  var definedResult = readDefinedVector(buf, offset, files.length);
+  const definedResult = readDefinedVector(buf, offset, files.length);
   offset += definedResult.bytesRead;
 
   // External flag - 0x00 means data follows inline, non-zero means external stream
-  var external = buf[offset++];
+  const external = buf[offset++];
   if (external !== 0) {
     throw createCodedError('External file attributes not supported', ErrorCode.UNSUPPORTED_FEATURE);
   }
 
   // Read attributes
-  for (var i = 0; i < files.length; i++) {
+  for (let i = 0; i < files.length; i++) {
     if (definedResult.defined[i]) {
       files[i].attributes = buf.readUInt32LE(offset);
       offset += 4;
@@ -765,11 +765,11 @@ function parseAttributes(buf: Buffer, offset: number, files: FileInfo[]): number
  */
 function skipArchiveProperties(buf: Buffer, offset: number): number {
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
     if (propertyId === PropertyId.kEnd) {
       break;
     }
-    var sizeResult = readNumber(buf, offset);
+    const sizeResult = readNumber(buf, offset);
     offset += sizeResult.bytesRead + sizeResult.value;
   }
   return offset;
@@ -780,7 +780,7 @@ function skipArchiveProperties(buf: Buffer, offset: number): number {
  */
 function skipStreamsInfo(buf: Buffer, offset: number): number {
   while (offset < buf.length) {
-    var propertyId = buf[offset++];
+    const propertyId = buf[offset++];
     if (propertyId === PropertyId.kEnd) {
       break;
     }

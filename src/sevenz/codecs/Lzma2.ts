@@ -1,6 +1,6 @@
 import Module from 'module';
 
-var _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
+const _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
 
 // LZMA2 codec - uses native lzma-native when available, falls back to lzma-purejs
 // LZMA2 is a container format that wraps LZMA chunks with framing
@@ -26,8 +26,8 @@ import { createInputStream, createOutputStream } from './streams.ts';
 
 // Import vendored lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
 // Path accounts for build output in dist/esm/sevenz/codecs/
-var { LZMA } = _require('../../../../assets/lzma-purejs');
-var LzmaDecoder = LZMA.Decoder;
+const { LZMA } = _require('../../../../assets/lzma-purejs');
+const LzmaDecoder = LZMA.Decoder;
 
 /**
  * Decode LZMA2 dictionary size from properties byte
@@ -49,8 +49,8 @@ function decodeDictionarySize(propByte: number): number {
     return 0xffffffff;
   }
   // Dictionary size = 2 | (propByte & 1) << (propByte / 2 + 11)
-  var base = 2 | (propByte & 1);
-  var shift = Math.floor(propByte / 2) + 11;
+  const base = 2 | (propByte & 1);
+  const shift = Math.floor(propByte / 2) + 11;
   return base << shift;
 }
 
@@ -67,25 +67,25 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
     throw new Error('LZMA2 requires properties byte');
   }
 
-  var dictSize = decodeDictionarySize(properties[0]);
+  const dictSize = decodeDictionarySize(properties[0]);
 
   // Memory optimization: pre-allocate output buffer if size is known
   // This avoids double-memory during Buffer.concat
-  var outputBuffer: Buffer | null = null;
-  var outputPos = 0;
-  var outputChunks: Buffer[] = [];
+  let outputBuffer: Buffer | null = null;
+  let outputPos = 0;
+  const outputChunks: Buffer[] = [];
 
   if (unpackSize && unpackSize > 0) {
     outputBuffer = allocBufferUnsafe(unpackSize);
   }
 
-  var offset = 0;
+  let offset = 0;
 
   // LZMA decoder instance - reused across chunks
   // The vendored decoder supports setSolid() for LZMA2 state preservation
   // The decoder also has _nowPos64 which tracks cumulative position for rep0 validation
   // and _prevByte which is used for literal decoder context selection
-  var decoder = new LzmaDecoder() as InstanceType<typeof LzmaDecoder> & {
+  const decoder = new LzmaDecoder() as InstanceType<typeof LzmaDecoder> & {
     setSolid: (solid: boolean) => void;
     _nowPos64: number;
     _prevByte: number;
@@ -101,13 +101,13 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
     _windowSize: number;
     init: (solid: boolean) => void;
   };
-  var outWindow = (decoder as unknown as { _outWindow: OutWindowType })._outWindow;
+  const outWindow = (decoder as unknown as { _outWindow: OutWindowType })._outWindow;
 
   // Track current LZMA properties (lc, lp, pb)
-  var propsSet = false;
+  let propsSet = false;
 
   while (offset < input.length) {
-    var control = input[offset++];
+    const control = input[offset++];
 
     if (control === 0x00) {
       // End of LZMA2 stream
@@ -131,7 +131,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       }
 
       // Size is big-endian, 16-bit, value + 1
-      var uncompSize = ((input[offset] << 8) | input[offset + 1]) + 1;
+      const uncompSize = ((input[offset] << 8) | input[offset + 1]) + 1;
       offset += 2;
 
       if (offset + uncompSize > input.length) {
@@ -139,7 +139,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       }
 
       // Get the uncompressed data
-      var uncompData = input.slice(offset, offset + uncompSize);
+      const uncompData = input.slice(offset, offset + uncompSize);
 
       // Copy uncompressed data to output
       if (outputBuffer) {
@@ -153,7 +153,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       // The decoder needs to track this data for LZ77 back-references
       // We write directly to _buffer to avoid flush() which requires _stream to be set
       // We must also update _streamPos to match _pos so that flush() doesn't try to write
-      for (var i = 0; i < uncompData.length; i++) {
+      for (let i = 0; i < uncompData.length; i++) {
         outWindow._buffer[outWindow._pos++] = uncompData[i];
         // Handle circular buffer wrap-around
         if (outWindow._pos >= outWindow._windowSize) {
@@ -183,10 +183,10 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       // 0xA0-0xBF (01): reset state only
       // 0xC0-0xDF (10): reset state + new properties
       // 0xE0-0xFF (11): reset dictionary + state + new properties
-      var resetState = control >= 0xa0;
-      var newProps = control >= 0xc0;
-      var dictReset = control >= 0xe0;
-      var useSolidMode = !resetState;
+      const resetState = control >= 0xa0;
+      const newProps = control >= 0xc0;
+      const dictReset = control >= 0xe0;
+      const useSolidMode = !resetState;
 
       // Handle dictionary reset for control bytes 0xE0-0xFF
       if (dictReset) {
@@ -199,12 +199,12 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       }
 
       // Uncompressed size: 5 bits from control + 16 bits from next 2 bytes + 1
-      var uncompHigh = control & 0x1f;
-      var uncompSize2 = ((uncompHigh << 16) | (input[offset] << 8) | input[offset + 1]) + 1;
+      const uncompHigh = control & 0x1f;
+      const uncompSize2 = ((uncompHigh << 16) | (input[offset] << 8) | input[offset + 1]) + 1;
       offset += 2;
 
       // Compressed size: 16 bits + 1
-      var compSize = ((input[offset] << 8) | input[offset + 1]) + 1;
+      const compSize = ((input[offset] << 8) | input[offset + 1]) + 1;
       offset += 2;
 
       // If new properties, read 1-byte LZMA properties
@@ -212,14 +212,14 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
         if (offset >= input.length) {
           throw new Error('Truncated LZMA2 properties byte');
         }
-        var propsByte = input[offset++];
+        const propsByte = input[offset++];
 
         // Properties byte: pb * 45 + lp * 9 + lc
         // where pb, lp, lc are LZMA parameters
-        var lc = propsByte % 9;
-        var remainder = Math.floor(propsByte / 9);
-        var lp = remainder % 5;
-        var pb = Math.floor(remainder / 5);
+        const lc = propsByte % 9;
+        const remainder = Math.floor(propsByte / 9);
+        const lp = remainder % 5;
+        const pb = Math.floor(remainder / 5);
 
         if (!decoder.setLcLpPb(lc, lp, pb)) {
           throw new Error(`Invalid LZMA properties: lc=${lc} lp=${lp} pb=${pb}`);
@@ -236,19 +236,19 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       }
 
       // Decode LZMA chunk
-      var inStream = createInputStream(input, offset, compSize);
-      var outStream = createOutputStream(uncompSize2); // Pre-allocate for memory efficiency
+      const inStream = createInputStream(input, offset, compSize);
+      const outStream = createOutputStream(uncompSize2); // Pre-allocate for memory efficiency
 
       // Set solid mode based on control byte - this preserves state across code() calls
       decoder.setSolid(useSolidMode);
 
       // Decode the chunk
-      var success = decoder.code(inStream, outStream, uncompSize2);
+      const success = decoder.code(inStream, outStream, uncompSize2);
       if (!success) {
         throw new Error('LZMA decompression failed');
       }
 
-      var chunkOutput = outStream.toBuffer();
+      const chunkOutput = outStream.toBuffer();
       if (outputBuffer) {
         chunkOutput.copy(outputBuffer, outputPos);
         outputPos += chunkOutput.length;
@@ -279,8 +279,8 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
 export function createLzma2Decoder(properties?: Buffer, unpackSize?: number): Transform {
   // Try native decoder first (available on Node.js 8+ with lzma-native installed)
   if (hasNativeLzma && properties && properties.length >= 1) {
-    var dictSize = decodeDictionarySize(properties[0]);
-    var nativeDecoder = createNativeLzma2Decoder(dictSize);
+    const dictSize = decodeDictionarySize(properties[0]);
+    const nativeDecoder = createNativeLzma2Decoder(dictSize);
     if (nativeDecoder) {
       return nativeDecoder;
     }

@@ -21,12 +21,12 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  */
 export function decodeBcj(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
   // BCJ filter state
-  var pos = 0;
-  var prevMask = 0;
-  var output = bufferFrom(input); // Copy since we modify in place
+  let pos = 0;
+  let prevMask = 0;
+  const output = bufferFrom(input); // Copy since we modify in place
 
   while (pos < output.length - 4) {
-    var b = output[pos];
+    const b = output[pos];
 
     // Check for CALL (0xE8) or JMP (0xE9) opcode
     if (b !== 0xe8 && b !== 0xe9) {
@@ -36,7 +36,7 @@ export function decodeBcj(input: Buffer, _properties?: Buffer, _unpackSize?: num
     }
 
     // Check mask to avoid false positives in data
-    var offset = pos + 5;
+    const offset = pos + 5;
     if (offset > output.length) {
       break;
     }
@@ -49,15 +49,15 @@ export function decodeBcj(input: Buffer, _properties?: Buffer, _unpackSize?: num
     }
 
     // Read the 32-bit address (little-endian)
-    var addr = output[pos + 1] | (output[pos + 2] << 8) | (output[pos + 3] << 16) | ((output[pos + 4] << 24) >>> 0);
+    const addr = output[pos + 1] | (output[pos + 2] << 8) | (output[pos + 3] << 16) | ((output[pos + 4] << 24) >>> 0);
 
     // Check if this looks like a converted address
     // High byte should be 0x00 or 0xFF for typical code
-    var highByte = output[pos + 4];
+    const highByte = output[pos + 4];
 
     if (highByte === 0x00 || highByte === 0xff) {
       // Convert absolute to relative
-      var newAddr: number;
+      let newAddr: number;
       if (highByte === 0x00) {
         // Positive offset - subtract position
         newAddr = addr - pos;

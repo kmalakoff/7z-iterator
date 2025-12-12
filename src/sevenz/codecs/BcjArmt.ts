@@ -24,14 +24,14 @@ import createBufferingDecoder from './createBufferingDecoder.ts';
  * @returns Unfiltered data
  */
 export function decodeBcjArmt(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
-  var output = bufferFrom(input); // Copy since we modify in place
-  var pos = 0;
+  const output = bufferFrom(input); // Copy since we modify in place
+  let pos = 0;
 
   // Process 2-byte aligned positions
   while (pos + 4 <= output.length) {
     // Read two 16-bit values (little-endian)
-    var w0 = output[pos] | (output[pos + 1] << 8);
-    var w1 = output[pos + 2] | (output[pos + 3] << 8);
+    const w0 = output[pos] | (output[pos + 1] << 8);
+    const w1 = output[pos + 2] | (output[pos + 3] << 8);
 
     // Check for BL instruction pair:
     // First word: 0xF000-0xF7FF (1111 0xxx xxxx xxxx)
@@ -39,11 +39,11 @@ export function decodeBcjArmt(input: Buffer, _properties?: Buffer, _unpackSize?:
     if ((w0 & 0xf800) === 0xf000 && (w1 & 0xf800) === 0xf800) {
       // Extract and combine the offset parts
       // High 11 bits from w0, low 11 bits from w1
-      var hi = w0 & 0x7ff;
-      var lo = w1 & 0x7ff;
+      const hi = w0 & 0x7ff;
+      const lo = w1 & 0x7ff;
 
       // Combine into 22-bit offset (in half-words)
-      var addr = (hi << 11) | lo;
+      let addr = (hi << 11) | lo;
 
       // Sign-extend 22-bit to 32-bit
       if (addr & 0x200000) {
@@ -53,11 +53,11 @@ export function decodeBcjArmt(input: Buffer, _properties?: Buffer, _unpackSize?:
       // Convert absolute to relative:
       // Subtract current position (in half-words, so divide by 2)
       // Thumb PC is 2 half-words (4 bytes) ahead
-      var relAddr = addr - (pos >>> 1);
+      const relAddr = addr - (pos >>> 1);
 
       // Write back
-      var newHi = (relAddr >>> 11) & 0x7ff;
-      var newLo = relAddr & 0x7ff;
+      const newHi = (relAddr >>> 11) & 0x7ff;
+      const newLo = relAddr & 0x7ff;
 
       output[pos] = newHi & 0xff;
       output[pos + 1] = 0xf0 | ((newHi >>> 8) & 0x07);
