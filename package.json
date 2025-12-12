@@ -48,7 +48,7 @@
   },
   "dependencies": {
     "call-once-fn": "^1.1.8",
-    "extract-base-iterator": "^2.4.11",
+    "extract-base-iterator": "^2.4.12",
     "fs-remove-compat": "^0.2.1",
     "lodash.compact": "^3.0.1",
     "mkdirp-classic": "^0.5.3",
@@ -70,7 +70,7 @@
     "node-version-use": "^2.1.5",
     "pinkie-promise": "^2.0.1",
     "ts-dev-stack": "^1.21.3",
-    "tsds-config": "^0.2.0"
+    "tsds-config": "^0.2.1"
   },
   "optionalDependencies": {
     "lzma-native": "^8.0.6"
