@@ -7,7 +7,7 @@ Extract contents from zip archive type using an iterator API using streams or pa
 ```js
 var assert = require('assert');
 var fs = require('fs');
-var ZipIterator = require('7z-iterator'));
+var ZipIterator = require('7z-iterator');
 
 (async function() {
   let iterator = new ZipIterator('/path/to/archive');
@@ -54,7 +54,7 @@ var ZipIterator = require('7z-iterator'));
 
 ```js
 var assert = require('assert');
-var ZipIterator = require('7z-iterator'));
+var ZipIterator = require('7z-iterator');
 
 // one by one
 (async function() {
@@ -108,7 +108,7 @@ var ZipIterator = require('7z-iterator'));
 ```js
 var assert = require('assert');
 var Queue = require('queue-cb');
-var ZipIterator = require('7z-iterator'));
+var ZipIterator = require('7z-iterator');
 
 var iterator = new ZipIterator('/path/to/archive');
 
