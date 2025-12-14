@@ -10,11 +10,8 @@ import os from 'os';
  * - Falls back to os-shim on Node 0.8
  */
 const hasTmpdir = typeof os.tmpdir === 'function';
-
 export function tmpdir(): string {
-  if (hasTmpdir) {
-    return os.tmpdir();
-  }
+  if (hasTmpdir) return os.tmpdir();
   const osShim = require('os-shim');
   return osShim.tmpdir();
 }
