@@ -49,7 +49,7 @@
   "dependencies": {
     "call-once-fn": "^1.1.10",
     "extract-base-iterator": "^2.4.14",
-    "fs-remove-compat": "^0.2.3",
+    "fs-remove-compat": "^0.2.4",
     "lodash.compact": "^3.0.1",
     "mkdirp-classic": "^0.5.3",
     "on-one": "^1.0.10",
