@@ -3,7 +3,7 @@
  * Node 0.8 compatible
  */
 import fs from 'fs';
-import getRemote from 'get-remote';
+import getFile from 'get-file-compat';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
 import { TMP_DIR } from './constants.ts';
@@ -31,10 +31,7 @@ export function downloadFixture(url: string, filename: string, callback: (err: E
     mkdirp(CACHE_DIR, (mkdirErr: Error | null) => {
       if (mkdirErr) return callback(mkdirErr);
 
-      // Download using get-remote (caches and works on Node 0.8)
-      // API: getRemote(url).file(dest, options?, callback?)
-      const cacheDir = path.dirname(filepath);
-      getRemote(url).file(cacheDir, { filename: path.basename(filepath) }, (downloadErr?: Error) => {
+      getFile(url, filepath, (downloadErr?: Error) => {
         if (downloadErr) return callback(downloadErr);
         callback(null, filepath);
       });
