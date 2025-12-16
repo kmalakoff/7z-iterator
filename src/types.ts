@@ -1,6 +1,10 @@
-export { DirectoryEntry, type Entry, LinkEntry, SymbolicLinkEntry } from 'extract-base-iterator';
+export { DirectoryEntry, LinkEntry, Lock, SymbolicLinkEntry } from 'extract-base-iterator';
 
-import type { ExtractOptions as BaseExtractOptions } from 'extract-base-iterator';
+import type { ExtractOptions as BaseExtractOptions, DirectoryEntry, LinkEntry, SymbolicLinkEntry } from 'extract-base-iterator';
+import type FileEntry from './FileEntry.ts';
+
+// 7z-specific Entry union type with 7z-specific FileEntry
+export type Entry = DirectoryEntry | FileEntry | LinkEntry | SymbolicLinkEntry;
 
 /**
  * Options for SevenZipIterator
@@ -23,16 +27,6 @@ export { default as FileEntry } from './FileEntry.ts';
 
 import type { SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
 
-export interface LockT {
-  iterator?: unknown;
-  err?: Error;
-  fd?: number;
-  tempPath: string;
-  sourceStream?: NodeJS.ReadableStream;
-  retain: () => void;
-  release: () => void;
-}
-
 export interface SevenZipFile {
   getStream: () => NodeJS.ReadableStream;
 }
@@ -41,7 +35,5 @@ export interface SevenZipFileIterator {
   next: () => SevenZipEntry | null;
   getParser: () => SevenZipParser;
 }
-
-import type { Entry } from 'extract-base-iterator';
 
 export type EntryCallback = (error?: Error, result?: IteratorResult<Entry>) => undefined;
