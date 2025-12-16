@@ -1,17 +1,17 @@
-import BaseIterator from 'extract-base-iterator';
+import BaseIterator, { Lock } from 'extract-base-iterator';
 import fs from 'fs';
+import { rmSync } from 'fs-remove-compat';
 import path from 'path';
 import Queue from 'queue-cb';
 import shortHash from 'short-hash';
 import tempSuffix from 'temp-suffix';
 import { tmpdir } from './compat.ts';
-import Lock from './lib/Lock.ts';
 import streamToSource, { type SourceResult } from './lib/streamToSource.ts';
 import nextEntry from './nextEntry.ts';
 import { setPassword } from './sevenz/codecs/index.ts';
 import { type ArchiveSource, FileSource, type SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
 
-import type { ExtractOptions, LockT, SevenZipFileIterator } from './types.ts';
+import type { Entry, ExtractOptions, SevenZipFileIterator } from './types.ts';
 
 /**
  * Iterator wrapper around SevenZipParser entries
@@ -38,14 +38,14 @@ class EntryIterator implements SevenZipFileIterator {
   }
 }
 
-export default class SevenZipIterator extends BaseIterator {
-  lock: LockT;
+export default class SevenZipIterator extends BaseIterator<Entry> {
+  lock: Lock | null;
   iterator: SevenZipFileIterator;
 
   constructor(source: string | NodeJS.ReadableStream, options: ExtractOptions = {}) {
     super(options);
     this.lock = new Lock();
-    this.lock.iterator = this;
+    this.lock.onDestroy = (err) => BaseIterator.prototype.end.call(this, err);
     const queue = new Queue(1);
     let cancelled = false;
     let archiveSource: ArchiveSource | null = null;
@@ -70,15 +70,23 @@ export default class SevenZipIterator extends BaseIterator {
             if (err) return cb(err);
 
             archiveSource = new FileSource(fd, stats.size);
-            this.lock.fd = fd;
+            // Register cleanup for file descriptor
+            this.lock.registerCleanup(() => {
+              fs.closeSync(fd);
+            });
             cb();
           });
         });
       });
     } else {
       // Stream input - use hybrid memory/temp-file approach
-      // Store source stream in lock for cleanup if destroyed during download
-      this.lock.sourceStream = source as NodeJS.ReadableStream;
+      // Register cleanup for source stream
+      const stream = source as NodeJS.ReadableStream;
+      this.lock.registerCleanup(() => {
+        const s = stream as NodeJS.ReadableStream & { destroy?: () => void };
+        if (typeof s.destroy === 'function') s.destroy();
+      });
+
       const tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
       queue.defer((cb: (err?: Error) => void) => {
         streamToSource(
@@ -94,10 +102,22 @@ export default class SevenZipIterator extends BaseIterator {
 
             archiveSource = result.source;
             if (result.fd !== undefined) {
-              this.lock.fd = result.fd;
+              const fd = result.fd;
+              // Register cleanup for file descriptor
+              this.lock.registerCleanup(() => {
+                fs.closeSync(fd);
+              });
             }
             if (result.tempPath) {
-              this.lock.tempPath = result.tempPath;
+              const tp = result.tempPath;
+              // Register cleanup for temp file
+              this.lock.registerCleanup(() => {
+                try {
+                  rmSync(tp);
+                } catch (_e) {
+                  /* ignore */
+                }
+              });
             }
             cb();
           }

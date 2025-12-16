@@ -1,15 +1,15 @@
-import { type FileAttributes, FileEntry, type NoParamCallback, waitForAccess } from 'extract-base-iterator';
+import { type FileAttributes, FileEntry, type Lock, type NoParamCallback, waitForAccess } from 'extract-base-iterator';
 import fs from 'fs';
 import oo from 'on-one';
 import type { SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
-import type { ExtractOptions, LockT } from './types.ts';
+import type { ExtractOptions } from './types.ts';
 
 export default class SevenZipFileEntry extends FileEntry {
-  private lock: LockT;
+  private lock: Lock;
   private entry: SevenZipEntry;
   private parser: SevenZipParser;
 
-  constructor(attributes: FileAttributes, entry: SevenZipEntry, parser: SevenZipParser, lock: LockT) {
+  constructor(attributes: FileAttributes, entry: SevenZipEntry, parser: SevenZipParser, lock: Lock) {
     super(attributes);
     this.entry = entry;
     this.parser = parser;

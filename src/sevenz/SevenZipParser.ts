@@ -1,10 +1,27 @@
-// SevenZipParser - Main 7z archive parser
-// Handles reading archive structure and providing file streams
+/**
+ * SevenZipParser - Main 7z archive parser
+ *
+ * Handles reading archive structure and providing file streams.
+ *
+ * Parser Flow:
+ * 1. Read signature header (32 bytes) to get header location
+ * 2. Read encoded header from nextHeaderOffset
+ * 3. If header is compressed, decompress it first
+ * 4. Parse streams info (folder structure, pack positions)
+ * 5. Parse files info (names, sizes, attributes)
+ * 6. Build entry list for iteration
+ *
+ * Decompression:
+ * - 7z uses "folders" as decompression units
+ * - Solid archives: multiple files share one folder (decompress once)
+ * - Non-solid: one file per folder
+ * - Supports LZMA, LZMA2, COPY, BCJ2, and other codecs
+ */
 
-import { allocBuffer, crc32 } from 'extract-base-iterator';
-import fs from 'fs';
+import { crc32 } from 'extract-base-iterator';
 import oo from 'on-one';
 import Stream from 'stream';
+import type { ArchiveSource } from './ArchiveSource.ts';
 import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
 
 // Use native streams when available, readable-stream only for Node 0.x
@@ -20,6 +37,9 @@ type Readable = Stream.Readable;
 import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE } from './constants.ts';
 import { type FileInfo, parseEncodedHeader, parseHeaderContent, parseSignatureHeader, type SignatureHeader, type StreamsInfo } from './headers.ts';
 import { readNumber } from './NumberCodec.ts';
+
+// Re-export for backwards compatibility
+export { type ArchiveSource, BufferSource, FileSource } from './ArchiveSource.ts';
 
 // Callback type for async operations
 type DecompressCallback = (err: Error | null, data?: Buffer) => void;
@@ -41,72 +61,6 @@ export interface SevenZipEntry {
   _streamIndexInFolder: number; // Stream index within folder (for solid archives)
   _hasStream: boolean;
   _crc?: number; // Expected CRC32 for this file (if present in archive)
-}
-
-/**
- * Archive source abstraction - allows reading from file descriptor or buffer
- */
-export interface ArchiveSource {
-  read(position: number, length: number): Buffer;
-  getSize(): number;
-  close(): void;
-}
-
-/**
- * Buffer-based archive source
- */
-export class BufferSource implements ArchiveSource {
-  private buffer: Buffer;
-
-  constructor(buffer: Buffer) {
-    this.buffer = buffer;
-  }
-
-  read(position: number, length: number): Buffer {
-    return this.buffer.slice(position, position + length);
-  }
-
-  getSize(): number {
-    return this.buffer.length;
-  }
-
-  close(): void {
-    // Nothing to close for buffer
-  }
-}
-
-/**
- * File descriptor based archive source
- */
-export class FileSource implements ArchiveSource {
-  private fd: number;
-  private size: number;
-
-  constructor(fd: number, size: number) {
-    this.fd = fd;
-    this.size = size;
-  }
-
-  read(position: number, length: number): Buffer {
-    const buf = allocBuffer(length);
-    const bytesRead = fs.readSync(this.fd, buf, 0, length, position);
-    if (bytesRead < length) {
-      return buf.slice(0, bytesRead);
-    }
-    return buf;
-  }
-
-  getSize(): number {
-    return this.size;
-  }
-
-  close(): void {
-    try {
-      fs.closeSync(this.fd);
-    } catch (_e) {
-      // Ignore close errors
-    }
-  }
 }
 
 /**
