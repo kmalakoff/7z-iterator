@@ -142,6 +142,32 @@ Decoder.prototype.setSolid = function(solid) {
   this._solid = solid;
 };
 
+Decoder.prototype.resetProbabilities = function() {
+  // Reset probability tables (same as init() but without dictionary/stream reset)
+  // Used for LZMA2 control bytes 0xa0-0xdf (state reset without dictionary reset)
+  initBitModels(this._isMatchDecoders);
+  initBitModels(this._isRepDecoders);
+  initBitModels(this._isRepG0Decoders);
+  initBitModels(this._isRepG1Decoders);
+  initBitModels(this._isRepG2Decoders);
+  initBitModels(this._isRep0LongDecoders);
+  initBitModels(this._posDecoders);
+  this._literalDecoder.init();
+  for (var i = this._posSlotDecoder.length - 1; i >= 0; i--) {
+    this._posSlotDecoder[i].init();
+  }
+  this._lenDecoder.init();
+  this._repLenDecoder.init();
+  this._posAlignDecoder.init();
+  // Reset state variables
+  this._state = 0;
+  this._rep0 = 0;
+  this._rep1 = 0;
+  this._rep2 = 0;
+  this._rep3 = 0;
+  // DO NOT reset _nowPos64, _prevByte, or dictionary
+};
+
 Decoder.prototype.setDictionarySize = function(dictionarySize){
   if (dictionarySize < 0) return false;
   if (this._dictionarySize !== dictionarySize){
