@@ -87,6 +87,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
   // and _prevByte which is used for literal decoder context selection
   const decoder = new LzmaDecoder() as InstanceType<typeof LzmaDecoder> & {
     setSolid: (solid: boolean) => void;
+    resetProbabilities: () => void;
     _nowPos64: number;
     _prevByte: number;
   };
@@ -240,7 +241,14 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
       const outStream = createOutputStream(uncompSize2); // Pre-allocate for memory efficiency
 
       // Set solid mode based on control byte - this preserves state across code() calls
-      decoder.setSolid(useSolidMode);
+      // For state reset WITHOUT dict reset (0xa0-0xdf), use resetProbabilities() to
+      // reset probability tables while preserving _nowPos64 for dictionary references
+      if (resetState && !dictReset) {
+        decoder.resetProbabilities();
+        decoder.setSolid(true); // Preserve _nowPos64 in code()
+      } else {
+        decoder.setSolid(useSolidMode);
+      }
 
       // Decode the chunk
       const success = decoder.code(inStream, outStream, uncompSize2);

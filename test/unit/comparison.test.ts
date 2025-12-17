@@ -74,42 +74,79 @@ function removeDir(dirPath: string): void {
   }
 }
 
-describe('Comparison - 7z-iterator vs native sevenzip', () => {
-  let hasComparison = false;
+/**
+ * Check if a native tool is available
+ */
+function _checkToolAvailable(checkCmd: string, callback: (available: boolean) => void): void {
+  exec(checkCmd, (err) => {
+    callback(!err);
+  });
+}
 
-  before((done) => {
-    // Ensure .cache directory exists
-    if (!fs.existsSync(CACHE_DIR)) {
-      fs.mkdirSync(CACHE_DIR, { recursive: true });
-    }
-
-    // Download archive if it doesn't exist
-    if (!fs.existsSync(CACHE_PATH)) {
-      console.log(`Downloading ${ARCHIVE_URL}...`);
-      getFile(ARCHIVE_URL, CACHE_PATH, (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
-        console.log('Download complete');
-        startExtraction();
-      });
+/**
+ * Find the available 7z command (7zz or 7z)
+ */
+function find7zCommand(callback: (cmd: string | null) => void): void {
+  exec('which 7zz', (err) => {
+    if (!err) {
+      callback('7zz');
     } else {
-      console.log('Using cached archive file');
-      startExtraction();
+      exec('which 7z', (err) => {
+        callback(err ? null : '7z');
+      });
     }
+  });
+}
+
+describe('Comparison - 7z-iterator vs native sevenzip', () => {
+  let toolAvailable = false;
+  let sevenZipCmd: string | null = null;
+
+  before(function (done) {
+    this.timeout(120000);
+
+    // Check if native 7z is available (try 7zz first, then 7z)
+    find7zCommand((cmd) => {
+      sevenZipCmd = cmd;
+      toolAvailable = cmd !== null;
+      if (!toolAvailable) {
+        console.log('    Skipping 7z comparison tests - native 7zz/7z not available');
+        done();
+        return;
+      }
+
+      // Ensure .cache directory exists
+      if (!fs.existsSync(CACHE_DIR)) {
+        fs.mkdirSync(CACHE_DIR, { recursive: true });
+      }
+
+      // Download archive if it doesn't exist
+      if (!fs.existsSync(CACHE_PATH)) {
+        console.log(`Downloading ${ARCHIVE_URL}...`);
+        getFile(ARCHIVE_URL, CACHE_PATH, (err) => {
+          if (err) {
+            done(err);
+            return;
+          }
+          console.log('Download complete');
+          startExtraction();
+        });
+      } else {
+        console.log('Using cached archive file');
+        startExtraction();
+      }
+    });
 
     function startExtraction(): void {
       // Clean up previous extractions
       removeDir(SEVENZIP_EXTRACT_DIR);
       removeDir(ITERATOR_EXTRACT_DIR);
 
-      // Extract with native 7zz
-      console.log('Extracting with native 7zz...');
-      exec(`7zz x -y -o${SEVENZIP_EXTRACT_DIR} ${CACHE_PATH}`, (err, _stdout, _stderr) => {
-        hasComparison = !err;
+      // Extract with native 7z (using whichever command is available)
+      console.log(`Extracting with native ${sevenZipCmd}...`);
+      exec(`${sevenZipCmd} x -y -o${SEVENZIP_EXTRACT_DIR} ${CACHE_PATH}`, (err, _stdout, _stderr) => {
         if (err) {
-          done();
+          done(err);
           return;
         }
 
@@ -138,14 +175,14 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
     }
   });
 
-  it('should produce identical extraction results', (done) => {
-    if (!hasComparison) {
-      done();
+  it('should produce identical extraction results', function (done) {
+    if (!toolAvailable) {
+      this.skip();
       return;
     }
 
     // Collect stats from both directories
-    console.log('Collecting stats from native 7zz extraction...');
+    console.log(`Collecting stats from native ${sevenZipCmd} extraction...`);
     collectStats(SEVENZIP_EXTRACT_DIR, (err1, statsSevenZip) => {
       if (err1) {
         done(err1);
@@ -202,8 +239,8 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
         // Report any differences
         if (differences.length > 0) {
           console.error('\n=== DIFFERENCES FOUND ===');
-          for (const diff of differences) {
-            console.error(diff);
+          for (let i = 0; i < differences.length; i++) {
+            console.error(differences[i]);
           }
           console.error('=========================\n');
 
