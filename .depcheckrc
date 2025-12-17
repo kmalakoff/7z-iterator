@@ -1,1 +1,1 @@
-ignores: ["node-version-use", "ts-dev-stack", "7z-iterator", "lzma-native", "readable-stream"]
+ignores: ["node-version-use", "ts-dev-stack", "7z-iterator", "readable-stream"]
