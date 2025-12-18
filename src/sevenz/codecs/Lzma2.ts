@@ -2,7 +2,7 @@ import Module from 'module';
 
 const _require = typeof require === 'undefined' ? Module.createRequire(import.meta.url) : require;
 
-// LZMA2 codec - uses native lzma-native when available, falls back to lzma-purejs
+// LZMA2 codec using lzma-purejs
 // LZMA2 is a container format that wraps LZMA chunks with framing
 //
 // LZMA2 format specification:
@@ -13,15 +13,10 @@ const _require = typeof require === 'undefined' ? Module.createRequire(import.me
 // 0x01         = Uncompressed chunk, dictionary reset
 // 0x02         = Uncompressed chunk, no dictionary reset
 // 0x80-0xFF    = LZMA compressed chunk (bits encode reset flags and size)
-//
-// Native optimization: On Node.js 8+, lzma-native provides liblzma bindings
-// that decode LZMA2 streams natively for better performance.
-// Falls back to lzma-purejs for Node.js 0.8-7.x compatibility.
 
 import { allocBufferUnsafe } from 'extract-base-iterator';
 import type { Transform } from 'readable-stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
-import { createNativeLzma2Decoder, hasNativeLzma } from './lzmaCompat.ts';
 import { createInputStream, createOutputStream } from './streams.ts';
 
 // Import vendored lzma-purejs - provides raw LZMA decoder (patched for LZMA2 support)
@@ -280,20 +275,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
 
 /**
  * Create an LZMA2 decoder Transform stream
- *
- * Uses native lzma-native when available for better performance,
- * falls back to lzma-purejs buffering decoder for Node.js 0.8+ compatibility.
  */
 export function createLzma2Decoder(properties?: Buffer, unpackSize?: number): Transform {
-  // Try native decoder first (available on Node.js 8+ with lzma-native installed)
-  if (hasNativeLzma && properties && properties.length >= 1) {
-    const dictSize = decodeDictionarySize(properties[0]);
-    const nativeDecoder = createNativeLzma2Decoder(dictSize);
-    if (nativeDecoder) {
-      return nativeDecoder;
-    }
-  }
-
-  // Fall back to buffering decoder with pure JS implementation
   return createBufferingDecoder(decodeLzma2, properties, unpackSize);
 }
