@@ -66,14 +66,10 @@
     "fs-iterator": "^7.0.0",
     "fs-stats-spys": "^1.0.0",
     "get-file-compat": "^2.0.0",
-    "lzma-native": "^8.0.6",
     "node-version-use": "*",
     "pinkie-promise": "*",
     "ts-dev-stack": "*",
     "tsds-config": "*"
-  },
-  "optionalDependencies": {
-    "lzma-native": "^8.0.6"
   },
   "engines": {
     "node": ">=0.8"
