@@ -7,7 +7,7 @@ import type SevenZipIterator from './SevenZipIterator.ts';
 import type { SevenZipEntry } from './sevenz/SevenZipParser.ts';
 import type { Entry, EntryCallback } from './types.ts';
 
-export type NextCallback = (error?: Error, entry?: Entry) => undefined;
+export type NextCallback = (error?: Error, entry?: Entry) => void;
 
 // Entry attributes object that gets mutated in switch - union of possible shapes
 // mtime is number for FileAttributes compatibility (timestamp in ms)
@@ -20,7 +20,7 @@ type EntryAttributesBuilder = {
   size?: number;
 };
 
-export default function nextEntry<_T>(iterator: SevenZipIterator, callback: EntryCallback): undefined {
+export default function nextEntry<_T>(iterator: SevenZipIterator, callback: EntryCallback): void {
   if (!iterator.iterator) {
     callback(new Error('iterator missing'));
     return;

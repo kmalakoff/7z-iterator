@@ -42,7 +42,7 @@ function collectStats(dirPath: string, callback: (err: Error | null, stats?: Rec
   const iterator = new Iterator(dirPath);
 
   iterator.forEach(
-    (entry): undefined => {
+    (entry): void => {
       // Calculate relative path from dirPath
       const absolutePath = entry.absolute || entry.absolutePath || entry.path;
       const relativePath = path.relative(dirPath, absolutePath);
@@ -156,13 +156,13 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
         const options = { now: new Date() };
 
         iterator.forEach(
-          (entry, callback): undefined => {
+          (entry, callback): void => {
             entry.create(ITERATOR_EXTRACT_DIR, options, (err) => {
               callback(err);
             });
           },
           { callbacks: true },
-          (err): undefined => {
+          (err): void => {
             if (err) {
               done(err);
             } else {
