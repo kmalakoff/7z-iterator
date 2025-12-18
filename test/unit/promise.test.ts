@@ -10,7 +10,6 @@ import validateFiles from '../lib/validateFiles.ts';
 
 function extract(iterator, dest, options, callback) {
   iterator
-    // biome-ignore lint/suspicious/useIterableCallbackReturn: Returns promise for async handling
     .forEach(
       (entry) => {
         return entry.create(dest, options);

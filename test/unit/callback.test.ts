@@ -39,7 +39,7 @@ describe('callback', () => {
     it('destroy entries', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'copy.7z'));
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entry.destroy();
         },
         (err) => {

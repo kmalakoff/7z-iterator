@@ -36,4 +36,4 @@ export interface SevenZipFileIterator {
   getParser: () => SevenZipParser;
 }
 
-export type EntryCallback = (error?: Error, result?: IteratorResult<Entry>) => undefined;
+export type EntryCallback = (error?: Error, result?: IteratorResult<Entry>) => void;
