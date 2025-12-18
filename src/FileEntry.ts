@@ -17,7 +17,10 @@ export default class SevenZipFileEntry extends FileEntry {
     this.lock.retain();
   }
 
-  create(dest: string, options: ExtractOptions | NoParamCallback, callback: NoParamCallback): undefined | Promise<boolean> {
+  create(dest: string, callback: NoParamCallback): void;
+  create(dest: string, options: ExtractOptions, callback: NoParamCallback): void;
+  create(dest: string, options?: ExtractOptions): Promise<boolean>;
+  create(dest: string, options?: ExtractOptions | NoParamCallback, callback?: NoParamCallback): void | Promise<boolean> {
     if (typeof options === 'function') {
       callback = options;
       options = null;
@@ -34,13 +37,13 @@ export default class SevenZipFileEntry extends FileEntry {
       });
     }
     return new Promise((resolve, reject) => {
-      this.create(dest, options, (err?: Error, done?: boolean) => {
+      this.create(dest, options as ExtractOptions, (err?: Error, done?: boolean) => {
         err ? reject(err) : resolve(done);
       });
     });
   }
 
-  _writeFile(fullPath: string, _options: ExtractOptions, callback: NoParamCallback): undefined {
+  _writeFile(fullPath: string, _options: ExtractOptions, callback: NoParamCallback): void {
     if (!this.entry || !this.parser) {
       callback(new Error('7z FileEntry missing entry. Check for calling create multiple times'));
       return;
@@ -52,7 +55,7 @@ export default class SevenZipFileEntry extends FileEntry {
       if (!stream) return callback(new Error('No stream returned'));
 
       const res = stream.pipe(fs.createWriteStream(fullPath));
-      oo(res, ['error', 'end', 'close', 'finish'], (writeErr?: Error) => {
+      oo(res, ['error', 'close', 'finish'], (writeErr?: Error) => {
         writeErr ? callback(writeErr) : waitForAccess(fullPath, callback);
       });
     });

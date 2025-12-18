@@ -34,7 +34,7 @@ describe('BCJ2 archives (large varints)', () => {
       const entries: string[] = [];
 
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entries.push(entry.path);
         },
         (err) => {
@@ -66,7 +66,7 @@ describe('BCJ2 archives (large varints)', () => {
       let entryCount = 0;
 
       iterator.forEach(
-        (): undefined => {
+        (): void => {
           entryCount++;
         },
         (err) => {
@@ -104,7 +104,7 @@ describe('BCJ2 archives (large varints)', () => {
           // Find and extract node.exe (it's the BCJ2-compressed file)
           let extracted = false;
           iterator.forEach(
-            (entry, callback): undefined => {
+            (entry, callback): void => {
               // Look for node.exe - this is the only BCJ2-compressed file
               if (stringEndsWith(entry.path, 'node.exe')) {
                 extracted = true;

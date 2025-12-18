@@ -19,7 +19,7 @@ export default function validateFiles(options, _type?, callback?) {
     const spys = statsSpys();
 
     new Iterator(dataPath, { lstat: true }).forEach(
-      (entry): undefined => {
+      (entry): void => {
         spys(entry.stats);
         if (entry.stats.isFile()) {
           const content = fs.readFileSync(entry.fullPath).toString();
@@ -28,10 +28,7 @@ export default function validateFiles(options, _type?, callback?) {
         }
       },
       (err) => {
-        if (err) {
-          callback(err);
-          return;
-        }
+        if (err) return callback(err);
         // Our test fixture has 4 directories (data, dir1, dir2, dir3) and 4 files
         assert.equal(spys.dir.callCount, 3, 'Expected 3 subdirectories (dir1, dir1/dir2, dir3)');
         assert.equal(spys.file.callCount, 4, 'Expected 4 files');

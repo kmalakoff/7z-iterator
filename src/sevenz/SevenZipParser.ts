@@ -697,10 +697,7 @@ export class SevenZipParser {
     const self = this;
 
     // Check cache first
-    if (this.decompressedCache[folderIndex]) {
-      callback(null, this.decompressedCache[folderIndex]);
-      return;
-    }
+    if (this.decompressedCache[folderIndex]) return callback(null, this.decompressedCache[folderIndex]);
 
     if (!this.streamsInfo) {
       callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
@@ -791,10 +788,7 @@ export class SevenZipParser {
       }
 
       decompressWithStream(input, idx, (err, output) => {
-        if (err) {
-          callback(err);
-          return;
-        }
+        if (err) return callback(err);
         decompressChain(output as Buffer, idx + 1);
       });
     }

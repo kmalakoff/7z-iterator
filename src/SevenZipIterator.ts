@@ -49,9 +49,8 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
     const queue = new Queue(1);
     let cancelled = false;
     let archiveSource: ArchiveSource | null = null;
-    const setup = (): undefined => {
+    const setup = (): void => {
       cancelled = true;
-      return undefined;
     };
     this.processing.push(setup);
 

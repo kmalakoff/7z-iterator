@@ -24,7 +24,7 @@ describe('fixtures', () => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'empty.7z'));
       const entries = [];
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entries.push(entry);
         },
         (err) => {
@@ -64,7 +64,7 @@ describe('fixtures', () => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'unicode.7z'));
       const entries = [];
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
         (err) => {
@@ -132,7 +132,7 @@ describe('fixtures', () => {
     it('should fail on truncated archive', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated.7z'));
       iterator.forEach(
-        (_entry): undefined => {
+        (_entry): void => {
           // Should not get here
           assert.ok(false, 'Should not iterate truncated archive');
         },
@@ -149,7 +149,7 @@ describe('fixtures', () => {
     it('should fail on truncated signature header', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated-signature.7z'));
       iterator.forEach(
-        (_entry): undefined => {
+        (_entry): void => {
           // Should not get here
           assert.ok(false, 'Should not iterate archive with truncated signature');
         },
@@ -167,7 +167,7 @@ describe('fixtures', () => {
     it('should fail on truncated encoded header', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated-header.7z'));
       iterator.forEach(
-        (_entry): undefined => {
+        (_entry): void => {
           // Should not get here
           assert.ok(false, 'Should not iterate archive with truncated header');
         },
@@ -185,10 +185,10 @@ describe('fixtures', () => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'lzma2.7z'));
       const entries: { path: string; type: string }[] = [];
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -208,7 +208,7 @@ describe('fixtures', () => {
           entry.create(TARGET, options, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -232,7 +232,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true, concurrency: 1 },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -276,10 +276,10 @@ describe('fixtures', () => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'lzma1.7z'));
       const entries: { path: string; type: string }[] = [];
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -302,7 +302,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -333,7 +333,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -363,7 +363,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -395,7 +395,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -424,7 +424,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -447,7 +447,7 @@ describe('fixtures', () => {
       const entries: { path: string; type: string }[] = [];
 
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
         (err) => {
@@ -508,7 +508,7 @@ describe('fixtures', () => {
       const symlinks: { path: string; type: string; linkpath?: string }[] = [];
 
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           if (entry.type === 'symlink') {
             const linkpath = (entry as { linkpath?: string }).linkpath;
             symlinks.push({ path: entry.path, type: entry.type, linkpath: linkpath });
@@ -549,7 +549,7 @@ describe('fixtures', () => {
       // Collect entries first, then create in order: dirs, files, symlinks
       // This ensures symlink targets exist before symlinks are created
       iterator.forEach(
-        (entry): undefined => {
+        (entry): void => {
           if (entry.type === 'symlink') {
             symlinks.push(entry.path);
           } else if (entry.type === 'file') {
@@ -569,10 +569,7 @@ describe('fixtures', () => {
           iterator2.forEach(
             (entry, callback) => {
               // Skip symlinks on first pass
-              if (entry.type === 'symlink') {
-                callback();
-                return;
-              }
+              if (entry.type === 'symlink') return callback();
               entry.create(TARGET, options, callback);
             },
             { callbacks: true },
@@ -586,14 +583,11 @@ describe('fixtures', () => {
               const iterator3 = new SevenZipIterator(path.join(DATA_DIR, 'symlink.7z'));
               iterator3.forEach(
                 (entry, callback) => {
-                  if (entry.type !== 'symlink') {
-                    callback();
-                    return;
-                  }
+                  if (entry.type !== 'symlink') return callback();
                   entry.create(TARGET, options, callback);
                 },
                 { callbacks: true },
-                (err3): undefined => {
+                (err3): void => {
                   if (err3) {
                     done(err3);
                     return;
@@ -629,7 +623,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -652,7 +646,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           // Should fail with wrong password - either error or corrupted data
           assert.ok(err, 'Should fail with wrong password');
           done();
@@ -669,7 +663,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           // Should fail without password
           assert.ok(err, 'Should fail without password');
           assert.ok(err.message.indexOf('password') >= 0, 'Error should mention password');
@@ -692,7 +686,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -719,7 +713,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -746,7 +740,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -773,7 +767,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
@@ -800,7 +794,7 @@ describe('fixtures', () => {
           entry.create(TARGET, {}, callback);
         },
         { callbacks: true },
-        (err): undefined => {
+        (err): void => {
           if (err) {
             done(err);
             return;
