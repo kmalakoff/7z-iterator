@@ -4,14 +4,6 @@
  */
 import os from 'os';
 
-/**
- * os.tmpdir wrapper for Node.js 0.8+
- * - Uses native os.tmpdir on Node 0.10+
- * - Falls back to os-shim on Node 0.8
- */
-const hasTmpdir = typeof os.tmpdir === 'function';
 export function tmpdir(): string {
-  if (hasTmpdir) return os.tmpdir();
-  const osShim = require('os-shim');
-  return osShim.tmpdir();
+  return typeof os.tmpdir === 'function' ? os.tmpdir() : require('os-shim').tmpdir();
 }
