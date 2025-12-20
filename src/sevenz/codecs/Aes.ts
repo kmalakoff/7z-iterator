@@ -16,7 +16,7 @@
 
 import crypto from 'crypto';
 import { allocBuffer, bufferFrom } from 'extract-base-iterator';
-import type { Transform } from 'readable-stream';
+import type { Transform } from 'stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 
 // Global password storage - set before decryption
