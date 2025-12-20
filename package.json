@@ -35,10 +35,10 @@
   "source": "src/index.ts",
   "types": "dist/cjs/index.d.ts",
   "files": [
-    "dist",
-    "assets"
+    "dist"
   ],
   "scripts": {
+    "benchmark:streaming": "node benchmark/streaming.cjs",
     "build": "tsds build",
     "format": "tsds format",
     "prepublishOnly": "tsds validate",

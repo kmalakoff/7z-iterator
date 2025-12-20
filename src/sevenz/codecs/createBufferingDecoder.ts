@@ -1,16 +1,8 @@
 // Helper to create a Transform stream that buffers all input before decoding
 // Used by codecs that need the full input before decompression (LZMA, LZMA2, BZip2, etc.)
 
-import Stream from 'stream';
+import { Transform } from 'extract-base-iterator';
 
-// Use native streams when available, readable-stream only for Node 0.x
-const major = +process.versions.node.split('.')[0];
-let Transform: typeof Stream.Transform;
-if (major > 0) {
-  Transform = Stream.Transform;
-} else {
-  Transform = require('readable-stream').Transform;
-}
 type TransformCallback = (error?: Error | null, data?: Buffer) => void;
 
 export type DecodeFn = (input: Buffer, properties?: Buffer, unpackSize?: number) => Buffer;
@@ -19,7 +11,7 @@ export type DecodeFn = (input: Buffer, properties?: Buffer, unpackSize?: number)
  * Create a Transform stream that buffers all input, then decodes in flush
  * This is the common pattern for codecs that can't stream (need full input)
  */
-export default function createBufferingDecoder(decodeFn: DecodeFn, properties?: Buffer, unpackSize?: number): Stream.Transform {
+export default function createBufferingDecoder(decodeFn: DecodeFn, properties?: Buffer, unpackSize?: number): InstanceType<typeof Transform> {
   const chunks: Buffer[] = [];
 
   return new Transform({
