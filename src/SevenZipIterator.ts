@@ -11,7 +11,16 @@ import nextEntry from './nextEntry.ts';
 import { setPassword } from './sevenz/codecs/index.ts';
 import { type ArchiveSource, FileSource, type SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
 
-import type { Entry, ExtractOptions, SevenZipFileIterator } from './types.ts';
+import type { Entry, ExtractOptions } from './types.ts';
+
+/**
+ * Internal iterator interface for SevenZipParser entries
+ * @internal
+ */
+interface SevenZipFileIterator {
+  next(): SevenZipEntry | null;
+  getParser(): SevenZipParser;
+}
 
 /**
  * Iterator wrapper around SevenZipParser entries
@@ -40,7 +49,8 @@ class EntryIterator implements SevenZipFileIterator {
 
 export default class SevenZipIterator extends BaseIterator<Entry> {
   lock: Lock | null;
-  iterator: SevenZipFileIterator;
+  /** @internal - Do not use directly */
+  _iterator: unknown;
 
   constructor(source: string | NodeJS.ReadableStream, options: ExtractOptions = {}) {
     super(options);
@@ -78,7 +88,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
         });
       });
     } else {
-      // Stream input - use hybrid memory/temp-file approach
+      // Stream input - write to temp file for random access
       // Register cleanup for source stream
       const stream = source as NodeJS.ReadableStream;
       this.lock.registerCleanup(() => {
@@ -88,39 +98,29 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
 
       const tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
       queue.defer((cb: (err?: Error) => void) => {
-        streamToSource(
-          source,
-          {
-            memoryThreshold: options.memoryThreshold,
-            tempPath: tempPath,
-          },
-          (err?: Error, result?: SourceResult) => {
-            if (this.done || cancelled) return;
-            if (err) return cb(err);
-            if (!result) return cb(new Error('No result from streamToSource'));
+        streamToSource(source, { tempPath }, (err?: Error, result?: SourceResult) => {
+          if (this.done || cancelled) return;
+          if (err) return cb(err);
+          if (!result) return cb(new Error('No result from streamToSource'));
 
-            archiveSource = result.source;
-            if (result.fd !== undefined) {
-              const fd = result.fd;
-              // Register cleanup for file descriptor
-              this.lock.registerCleanup(() => {
-                fs.closeSync(fd);
-              });
+          archiveSource = result.source;
+
+          // Register cleanup for file descriptor
+          this.lock.registerCleanup(() => {
+            fs.closeSync(result.fd);
+          });
+
+          // Register cleanup for temp file
+          this.lock.registerCleanup(() => {
+            try {
+              rmSync(result.tempPath);
+            } catch (_e) {
+              /* ignore */
             }
-            if (result.tempPath) {
-              const tp = result.tempPath;
-              // Register cleanup for temp file
-              this.lock.registerCleanup(() => {
-                try {
-                  rmSync(tp);
-                } catch (_e) {
-                  /* ignore */
-                }
-              });
-            }
-            cb();
-          }
-        );
+          });
+
+          cb();
+        });
       });
     }
 
@@ -132,7 +132,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
       try {
         const parser = new SevenZipParser(archiveSource);
         parser.parse();
-        this.iterator = new EntryIterator(parser);
+        this._iterator = new EntryIterator(parser);
         cb();
       } catch (parseErr) {
         cb(parseErr as Error);
@@ -155,6 +155,71 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
       lock.release();
     }
     // Don't call base end here - Lock.__destroy() handles it
-    this.iterator = null;
+    this._iterator = null;
+  }
+
+  /**
+   * Check if streaming extraction is available for any folder in this archive.
+   * Streaming is possible when folders use codecs like BZip2, Deflate, or Copy
+   * that can decompress incrementally without buffering the entire input.
+   *
+   * @returns true if at least one folder supports streaming
+   */
+  canStream(): boolean {
+    if (!this._iterator) return false;
+    const parser = (this._iterator as SevenZipFileIterator).getParser();
+    if (!parser) return false;
+
+    const entries = parser.getEntries();
+    const checkedFolders: { [key: number]: boolean } = {};
+
+    for (let i = 0; i < entries.length; i++) {
+      const folderIndex = entries[i]._folderIndex;
+      if (folderIndex >= 0 && checkedFolders[folderIndex] === undefined) {
+        checkedFolders[folderIndex] = parser.canStreamFolder(folderIndex);
+        if (checkedFolders[folderIndex]) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Get entries sorted for optimal streaming extraction.
+   *
+   * Entries are sorted by:
+   * 1. Folder index (process one folder at a time)
+   * 2. Stream index within folder (for solid block streaming)
+   *
+   * This ordering allows multi-file solid folders to stream with
+   * O(largest file) memory instead of O(folder size).
+   *
+   * @returns Array of entries in streaming order
+   */
+  getStreamingOrder(): SevenZipEntry[] {
+    if (!this._iterator) return [];
+    const parser = (this._iterator as SevenZipFileIterator).getParser();
+    if (!parser) return [];
+
+    const entries = parser.getEntries();
+
+    // Create a copy and sort for streaming order
+    const sorted: SevenZipEntry[] = [];
+    for (let i = 0; i < entries.length; i++) {
+      sorted.push(entries[i]);
+    }
+
+    sorted.sort((a, b) => {
+      // First by folder index
+      if (a._folderIndex !== b._folderIndex) {
+        return a._folderIndex - b._folderIndex;
+      }
+      // Then by stream index within folder
+      return a._streamIndexInFolder - b._streamIndexInFolder;
+    });
+
+    return sorted;
   }
 }

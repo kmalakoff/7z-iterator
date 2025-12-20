@@ -1,117 +1,64 @@
-// Hybrid stream handling: buffers in memory up to threshold, then switches to temp file
+// Stream to source conversion: writes stream to temp file for random access
 import once from 'call-once-fn';
 import { bufferFrom } from 'extract-base-iterator';
 import fs from 'fs';
 import mkdirp from 'mkdirp-classic';
 import oo from 'on-one';
 import path from 'path';
-import { BufferSource, FileSource } from '../sevenz/SevenZipParser.ts';
-
-// Default memory threshold: 100 MB
-const DEFAULT_MEMORY_THRESHOLD = 100 * 1024 * 1024;
+import { FileSource } from '../sevenz/SevenZipParser.ts';
 
 export interface StreamToSourceOptions {
-  memoryThreshold?: number;
-  tempPath?: string;
+  tempPath: string;
 }
 
 export interface SourceResult {
-  source: BufferSource | FileSource;
-  fd?: number; // Set if FileSource was used (caller must close)
-  tempPath?: string; // Set if temp file was created (caller must clean up)
+  source: FileSource;
+  fd: number; // Caller must close
+  tempPath: string; // Caller must clean up
 }
 
 export type Callback = (error?: Error, result?: SourceResult) => void;
 
 /**
- * Convert a stream to an ArchiveSource (BufferSource for small files, FileSource for large)
+ * Convert a stream to a FileSource by writing to temp file
  *
- * Algorithm:
- * 1. Buffer stream data in memory up to memoryThreshold
- * 2. If threshold exceeded, write all buffered data to temp file and continue streaming
- * 3. When done, return BufferSource for memory buffer or FileSource for temp file
+ * 7z format requires random access for header parsing, so temp file is necessary for streams.
+ * Writes directly to temp file for predictable O(1) memory usage during stream consumption.
  */
 export default function streamToSource(stream: NodeJS.ReadableStream, options: StreamToSourceOptions, callback: Callback): void {
-  const threshold = options.memoryThreshold !== undefined ? options.memoryThreshold : DEFAULT_MEMORY_THRESHOLD;
   const tempPath = options.tempPath;
-
-  let chunks: Buffer[] = [];
-  let totalSize = 0;
-  let writeStream: fs.WriteStream | null = null;
-  let useTempFile = false;
 
   const end = once(callback);
 
+  mkdirp.sync(path.dirname(tempPath));
+  const writeStream = fs.createWriteStream(tempPath);
+
   function onData(chunk: Buffer | string): void {
-    // Convert string chunks to Buffer
     const buf = typeof chunk === 'string' ? bufferFrom(chunk) : chunk;
-    totalSize += buf.length;
-
-    if (!useTempFile && totalSize <= threshold) {
-      // Still under threshold - buffer in memory
-      chunks.push(buf);
-    } else if (!useTempFile) {
-      // Just exceeded threshold - switch to temp file
-      useTempFile = true;
-
-      if (!tempPath) {
-        end(new Error('memoryThreshold exceeded but no tempPath provided'));
-        return;
-      }
-
-      mkdirp.sync(path.dirname(tempPath));
-      writeStream = fs.createWriteStream(tempPath);
-
-      // Write all buffered chunks to temp file
-      for (let i = 0; i < chunks.length; i++) {
-        writeStream.write(chunks[i]);
-      }
-      chunks = []; // Allow GC
-
-      // Write current chunk
-      writeStream.write(buf);
-    } else {
-      // Already using temp file - write directly
-      if (writeStream) {
-        writeStream.write(buf);
-      }
-    }
+    writeStream.write(buf);
   }
 
   function onEnd(): void {
-    if (useTempFile && writeStream && tempPath) {
-      // Close write stream, then open for reading
-      const filePath = tempPath; // Capture for closure
-      writeStream.end(() => {
-        fs.open(filePath, 'r', (err, fd) => {
-          if (err) return end(err);
-          fs.stat(filePath, (statErr, stats) => {
-            if (statErr) {
-              fs.closeSync(fd);
-              return end(statErr);
-            }
-            end(null, {
-              source: new FileSource(fd, stats.size),
-              fd: fd,
-              tempPath: filePath,
-            });
+    writeStream.end(() => {
+      fs.open(tempPath, 'r', (err, fd) => {
+        if (err) return end(err);
+        fs.stat(tempPath, (statErr, stats) => {
+          if (statErr) {
+            fs.closeSync(fd);
+            return end(statErr);
+          }
+          end(null, {
+            source: new FileSource(fd, stats.size),
+            fd: fd,
+            tempPath: tempPath,
           });
         });
       });
-    } else {
-      // Use memory buffer
-      const fullBuffer = Buffer.concat(chunks);
-      end(null, {
-        source: new BufferSource(fullBuffer),
-      });
-    }
+    });
   }
 
   function onError(err: Error): void {
-    // Clean up if we created a temp file
-    if (writeStream) {
-      writeStream.end();
-    }
+    writeStream.end();
     end(err);
   }
 
