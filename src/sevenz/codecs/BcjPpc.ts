@@ -6,7 +6,7 @@
 // Reference: https://github.com/kornelski/7z/blob/main/C/Bra.c
 
 import { bufferFrom } from 'extract-base-iterator';
-import type { Transform } from 'readable-stream';
+import type { Transform } from 'stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 
 /**

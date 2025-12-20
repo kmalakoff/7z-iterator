@@ -1,4 +1,4 @@
 {
   "upgrade": true,
-  "reject": ["readable-stream", "pako", "unbzip2-stream"]
+  "reject": ["unbzip2-stream"]
 }
