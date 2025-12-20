@@ -143,6 +143,22 @@ describe('fixtures', () => {
         }
       );
     });
+
+    it('should fail on truncated archive with entry.create()', (done) => {
+      const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated.7z'));
+      iterator.forEach(
+        (entry, callback) => {
+          // Try to extract - should fail
+          entry.create(TARGET, {}, callback);
+        },
+        { callbacks: true },
+        (err) => {
+          // Should have an error due to truncation
+          assert.ok(err, 'Should fail on truncated archive during extraction');
+          done();
+        }
+      );
+    });
   });
 
   describe('truncated-signature.7z', () => {

@@ -1,8 +1,0 @@
-{
-  "name": "lzma-purejs-vendored",
-  "version": "0.9.3",
-  "description": "Vendored lzma-purejs with LZMA2 solid mode support",
-  "license": "BSD",
-  "type": "commonjs",
-  "main": "index.js"
-}

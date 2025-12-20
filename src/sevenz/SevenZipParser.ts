@@ -18,20 +18,12 @@
  * - Supports LZMA, LZMA2, COPY, BCJ2, and other codecs
  */
 
-import { crc32 } from 'extract-base-iterator';
-import oo from 'on-one';
-import Stream from 'stream';
+import { crc32, PassThrough } from 'extract-base-iterator';
+import type Stream from 'stream';
 import type { ArchiveSource } from './ArchiveSource.ts';
 import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
+import { FolderStreamSplitter } from './FolderStreamSplitter.ts';
 
-// Use native streams when available, readable-stream only for Node 0.x
-const major = +process.versions.node.split('.')[0];
-let PassThrough: typeof Stream.PassThrough;
-if (major > 0) {
-  PassThrough = Stream.PassThrough;
-} else {
-  PassThrough = require('readable-stream').PassThrough;
-}
 type Readable = Stream.Readable;
 
 import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE } from './constants.ts';
@@ -40,9 +32,6 @@ import { readNumber } from './NumberCodec.ts';
 
 // Re-export for backwards compatibility
 export { type ArchiveSource, BufferSource, FileSource } from './ArchiveSource.ts';
-
-// Callback type for async operations
-type DecompressCallback = (err: Error | null, data?: Buffer) => void;
 
 // Entry type for iteration
 export interface SevenZipEntry {
@@ -61,6 +50,7 @@ export interface SevenZipEntry {
   _streamIndexInFolder: number; // Stream index within folder (for solid archives)
   _hasStream: boolean;
   _crc?: number; // Expected CRC32 for this file (if present in archive)
+  _canStream: boolean; // Whether this entry's folder supports streaming decompression
 }
 
 /**
@@ -79,6 +69,8 @@ export class SevenZipParser {
   // Track files per folder and how many have been extracted
   private filesPerFolder: { [key: number]: number } = {};
   private extractedPerFolder: { [key: number]: number } = {};
+  // Splitter cache for multi-file folder streaming (Phase 2)
+  private folderSplitters: { [key: number]: FolderStreamSplitter } = {};
 
   constructor(source: ArchiveSource) {
     this.source = source;
@@ -393,6 +385,16 @@ export class SevenZipParser {
         }
       }
     }
+
+    // Set _canStream for all entries now that we have complete folder info
+    // This must be done after all entries are built because canStreamFolder
+    // relies on the folder structure being fully parsed
+    for (let i = 0; i < this.entries.length; i++) {
+      const entry = this.entries[i];
+      if (entry._hasStream && entry._folderIndex >= 0) {
+        entry._canStream = this.canStreamFolder(entry._folderIndex);
+      }
+    }
   }
 
   /**
@@ -439,6 +441,7 @@ export class SevenZipParser {
       _streamIndex: 0, // Set by caller
       _streamIndexInFolder: streamInFolder,
       _hasStream: file.hasStream,
+      _canStream: false, // Set after parsing completes when canStreamFolder is available
     };
   }
 
@@ -453,7 +456,9 @@ export class SevenZipParser {
   }
 
   /**
-   * Get a readable stream for an entry's content
+   * Get a readable stream for an entry's content.
+   * Returns immediately - decompression happens when data is read (proper streaming).
+   * Uses true streaming for codecs that support it, buffered for others.
    */
   getEntryStream(entry: SevenZipEntry): Readable {
     if (!entry._hasStream || entry.type === 'directory') {
@@ -482,130 +487,171 @@ export class SevenZipParser {
       }
     }
 
-    // Get decompressed data for this folder (with smart caching)
-    const folderIdx = entry._folderIndex;
-    const data = this.getDecompressedFolder(folderIdx);
-
-    // Calculate file offset within the decompressed block
-    // For solid archives, multiple files are concatenated in the block
-    let fileStart = 0;
-    for (let m = 0; m < entry._streamIndexInFolder; m++) {
-      // Sum sizes of all streams before this one in the folder
-      const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
-      fileStart += this.streamsInfo.unpackSizes[prevStreamGlobalIndex];
+    // Use true streaming for single-file folders that support it.
+    // Multi-file folders use buffered approach because streaming requires
+    // accessing files in order, which doesn't work with concurrent extraction.
+    const filesInFolder = this.filesPerFolder[entry._folderIndex] || 1;
+    if (entry._canStream && filesInFolder === 1) {
+      return this._getEntryStreamStreaming(entry);
     }
-
-    const fileSize = entry.size;
-
-    // Create a PassThrough stream with the file data
-    const outputStream = new PassThrough();
-
-    // Bounds check to prevent "oob" error on older Node versions
-    if (fileStart + fileSize > data.length) {
-      throw createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED);
-    }
-
-    const fileData = data.slice(fileStart, fileStart + fileSize);
-
-    // Verify CRC if present
-    if (entry._crc !== undefined) {
-      const actualCRC = crc32(fileData);
-      if (actualCRC !== entry._crc) {
-        throw createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH);
-      }
-    }
-
-    outputStream.end(fileData);
-
-    // Track extraction and release cache when all files from this folder are done
-    this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
-    if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
-      // All files from this folder extracted, release cache
-      delete this.decompressedCache[folderIdx];
-    }
-
-    return outputStream;
+    return this._getEntryStreamBuffered(entry);
   }
 
   /**
-   * Get a readable stream for an entry's content (callback-based async version)
-   * Uses streaming decompression for non-blocking I/O
+   * True streaming: data flows through without buffering entire folder.
+   * Only used for single-file folders with streamable codecs (BZip2, Deflate, LZMA2).
    */
-  getEntryStreamAsync(entry: SevenZipEntry, callback: (err: Error | null, stream?: Readable) => void): void {
-    if (!entry._hasStream || entry.type === 'directory') {
-      // Return empty stream for directories and empty files
-      const emptyStream = new PassThrough();
-      emptyStream.end();
-      callback(null, emptyStream);
-      return;
-    }
+  private _getEntryStreamStreaming(entry: SevenZipEntry): Readable {
+    let started = false;
+    let destroyed = false;
+    let folderStream: ReturnType<typeof this.streamFolder> | null = null;
 
+    const stream = new PassThrough();
+
+    const originalRead = stream._read.bind(stream);
+    stream._read = (size: number) => {
+      if (!started && !destroyed) {
+        started = true;
+        setTimeout(() => {
+          if (destroyed) return;
+
+          try {
+            let crcValue = 0;
+            const verifyCrc = entry._crc !== undefined;
+            folderStream = this.streamFolder(entry._folderIndex);
+
+            folderStream.output.on('data', (chunk: Buffer) => {
+              if (destroyed) return;
+              if (verifyCrc) {
+                crcValue = crc32(chunk, crcValue);
+              }
+              if (!stream.write(chunk)) {
+                folderStream?.pause();
+                stream.once('drain', () => folderStream?.resume());
+              }
+            });
+
+            folderStream.output.on('end', () => {
+              if (destroyed) return;
+              if (verifyCrc && crcValue !== entry._crc) {
+                stream.destroy(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc?.toString(16)}, got ${crcValue.toString(16)}`, ErrorCode.CRC_MISMATCH));
+                return;
+              }
+              stream.end();
+              this.extractedPerFolder[entry._folderIndex] = (this.extractedPerFolder[entry._folderIndex] || 0) + 1;
+            });
+
+            folderStream.output.on('error', (err: Error) => {
+              if (!destroyed) stream.destroy(err);
+            });
+          } catch (err) {
+            if (!destroyed) {
+              stream.destroy(err as Error);
+            }
+          }
+        }, 0);
+      }
+      return originalRead(size);
+    };
+
+    // Override destroy to clean up folder stream
+    // IMPORTANT: Emit error synchronously BEFORE calling original destroy.
+    // On older Node, destroy() emits 'finish' and 'end' before 'error',
+    // which causes piped streams to complete successfully before the error fires.
+    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error) => NodeJS.ReadableStream };
+    const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
+    streamWithDestroy.destroy = (err?: Error) => {
+      destroyed = true;
+      if (err) stream.emit('error', err);
+      if (folderStream) folderStream.destroy();
+      if (originalDestroy) return originalDestroy();
+      return stream;
+    };
+
+    return stream;
+  }
+
+  /**
+   * Buffered extraction: decompress entire folder, slice out file.
+   * Used for codecs that don't support incremental streaming (LZMA1, BCJ2).
+   */
+  private _getEntryStreamBuffered(entry: SevenZipEntry): Readable {
     if (!this.streamsInfo) {
-      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
-      return;
+      throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
     }
-
-    // Get folder info
-    const folder = this.streamsInfo.folders[entry._folderIndex];
-    if (!folder) {
-      callback(createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER));
-      return;
-    }
-
-    // Check codec support
-    for (let i = 0; i < folder.coders.length; i++) {
-      const coder = folder.coders[i];
-      if (!isCodecSupported(coder.id)) {
-        const codecName = getCodecName(coder.id);
-        callback(createCodedError(`Unsupported codec: ${codecName}`, ErrorCode.UNSUPPORTED_CODEC));
-        return;
-      }
-    }
-
-    // Get decompressed data for this folder using async method
-    const folderIdx = entry._folderIndex;
     const streamsInfo = this.streamsInfo;
+    const folderIdx = entry._folderIndex;
+    let started = false;
+    let destroyed = false;
 
-    this.getDecompressedFolderAsync(folderIdx, (err, data) => {
-      if (err) return callback(err);
-      if (!data) return callback(new Error('No data returned from decompression'));
+    const stream = new PassThrough();
 
-      // Calculate file offset within the decompressed block
-      let fileStart = 0;
-      for (let m = 0; m < entry._streamIndexInFolder; m++) {
-        const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
-        fileStart += streamsInfo.unpackSizes[prevStreamGlobalIndex];
+    const originalRead = stream._read.bind(stream);
+    stream._read = (size: number) => {
+      if (!started && !destroyed) {
+        started = true;
+        setTimeout(() => {
+          if (destroyed) return;
+
+          try {
+            const data = this.getDecompressedFolder(folderIdx);
+
+            let fileStart = 0;
+            for (let m = 0; m < entry._streamIndexInFolder; m++) {
+              const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
+              fileStart += streamsInfo.unpackSizes[prevStreamGlobalIndex];
+            }
+
+            const fileSize = entry.size;
+
+            if (fileStart + fileSize > data.length) {
+              stream.destroy(createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED));
+              return;
+            }
+
+            const fileData = data.slice(fileStart, fileStart + fileSize);
+
+            if (entry._crc !== undefined) {
+              const actualCRC = crc32(fileData);
+              if (actualCRC !== entry._crc) {
+                stream.destroy(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH));
+                return;
+              }
+            }
+
+            this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
+            if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
+              delete this.decompressedCache[folderIdx];
+            }
+
+            if (!destroyed) {
+              stream.push(fileData);
+              stream.push(null);
+            }
+          } catch (err) {
+            if (!destroyed) {
+              stream.destroy(err as Error);
+            }
+          }
+        }, 0);
       }
+      return originalRead(size);
+    };
 
-      const fileSize = entry.size;
+    // Override destroy to set destroyed flag
+    // IMPORTANT: Emit error synchronously BEFORE calling original destroy.
+    // On older Node, destroy() emits 'finish' and 'end' before 'error',
+    // which causes piped streams to complete successfully before the error fires.
+    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error) => NodeJS.ReadableStream };
+    const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
+    streamWithDestroy.destroy = (err?: Error) => {
+      destroyed = true;
+      if (err) stream.emit('error', err);
+      if (originalDestroy) return originalDestroy();
+      return stream;
+    };
 
-      // Bounds check
-      if (fileStart + fileSize > data.length) {
-        return callback(createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED));
-      }
-
-      // Create a PassThrough stream with the file data
-      const outputStream = new PassThrough();
-      const fileData = data.slice(fileStart, fileStart + fileSize);
-
-      // Verify CRC if present
-      if (entry._crc !== undefined) {
-        const actualCRC = crc32(fileData);
-        if (actualCRC !== entry._crc) {
-          return callback(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH));
-        }
-      }
-
-      outputStream.end(fileData);
-
-      // Track extraction and release cache when all files from this folder are done
-      this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
-      if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
-        delete this.decompressedCache[folderIdx];
-      }
-
-      callback(null, outputStream);
-    });
+    return stream;
   }
 
   /**
@@ -687,114 +733,6 @@ export class SevenZipParser {
     }
 
     return data2;
-  }
-
-  /**
-   * Get decompressed data for a folder using streaming (callback-based async)
-   * Uses createDecoder() streams for non-blocking decompression
-   */
-  private getDecompressedFolderAsync(folderIndex: number, callback: DecompressCallback): void {
-    const self = this;
-
-    // Check cache first
-    if (this.decompressedCache[folderIndex]) return callback(null, this.decompressedCache[folderIndex]);
-
-    if (!this.streamsInfo) {
-      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
-      return;
-    }
-
-    const folder = this.streamsInfo.folders[folderIndex];
-
-    // Check how many files remain in this folder
-    const filesInFolder = this.filesPerFolder[folderIndex] || 1;
-    const extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
-    const remainingFiles = filesInFolder - extractedFromFolder;
-    const shouldCache = remainingFiles > 1;
-
-    // BCJ2 requires special handling - use sync version for now
-    // TODO: Add async BCJ2 support
-    if (this.folderHasBcj2(folder)) {
-      try {
-        const data = this.decompressBcj2Folder(folderIndex);
-        if (shouldCache) {
-          this.decompressedCache[folderIndex] = data;
-        }
-        callback(null, data);
-      } catch (err) {
-        callback(err as Error);
-      }
-      return;
-    }
-
-    // Calculate packed data position
-    let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
-
-    // Find which pack stream this folder uses
-    let packStreamIndex = 0;
-    for (let j = 0; j < folderIndex; j++) {
-      packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
-    }
-
-    // Calculate position of this pack stream
-    for (let k = 0; k < packStreamIndex; k++) {
-      packPos += this.streamsInfo.packSizes[k];
-    }
-
-    const packSize = this.streamsInfo.packSizes[packStreamIndex];
-
-    // Read packed data
-    const packedData = this.source.read(packPos, packSize);
-
-    // Create decoder stream chain and decompress
-    const coders = folder.coders;
-    const unpackSizes = folder.unpackSizes;
-
-    // Helper to decompress through a single codec stream
-    function decompressWithStream(input: Buffer, coderIdx: number, cb: DecompressCallback): void {
-      const coderInfo = coders[coderIdx];
-      const codec = getCodec(coderInfo.id);
-      const decoder = codec.createDecoder(coderInfo.properties, unpackSizes[coderIdx]);
-
-      const chunks: Buffer[] = [];
-      let errorOccurred = false;
-
-      decoder.on('data', (chunk: Buffer) => {
-        chunks.push(chunk);
-      });
-
-      oo(decoder, ['error', 'end', 'close', 'finish'], (err?: Error) => {
-        if (errorOccurred) return;
-        if (err) {
-          errorOccurred = true;
-          return cb(err);
-        }
-        cb(null, Buffer.concat(chunks));
-      });
-
-      // Write input data to decoder and signal end
-      decoder.end(input);
-    }
-
-    // Chain decompression through all codecs
-    function decompressChain(input: Buffer, idx: number): void {
-      if (idx >= coders.length) {
-        // All done - cache and return
-        if (shouldCache) {
-          self.decompressedCache[folderIndex] = input;
-        }
-        callback(null, input);
-        return;
-      }
-
-      decompressWithStream(input, idx, (err, output) => {
-        if (err) return callback(err);
-        decompressChain(output as Buffer, idx + 1);
-      });
-    }
-
-    // Start the chain
-    decompressChain(packedData, 0);
   }
 
   /**
@@ -1023,6 +961,335 @@ export class SevenZipParser {
     if (this.source) {
       this.source.close();
     }
+  }
+
+  // ============================================================
+  // STREAMING METHODS (Phase 1+)
+  // ============================================================
+
+  /**
+   * Check if a codec supports true streaming decompression.
+   *
+   * Only codecs that process data incrementally (not buffering entire input) qualify.
+   * @param codecId - The codec ID as an array of bytes
+   * @returns true if the codec can stream
+   */
+  private codecSupportsStreaming(codecId: number[]): boolean {
+    // Convert to string key for comparison
+    const key = codecId.map((b) => b.toString(16).toUpperCase()).join('-');
+
+    // BZip2 - unbzip2-stream processes blocks incrementally
+    if (key === '4-2-2') return true;
+
+    // Copy/Store - PassThrough, obviously streams
+    if (key === '0') return true;
+
+    // Deflate - now uses zlib.createInflateRaw() which streams
+    if (key === '4-1-8') return true;
+
+    // Delta - now uses streaming Transform (Phase 2.5)
+    if (key === '3') return true;
+
+    // BCJ x86 - now uses streaming Transform (Phase 3.5)
+    if (key === '3-3-1-3') return true;
+
+    // BCJ ARM - now uses streaming Transform (Phase 3.5)
+    if (key === '3-3-1-5') return true;
+
+    // LZMA2 - now uses streaming Transform (Phase 5)
+    if (key === '21') return true;
+
+    // LZMA - still buffer-based (TODO: Phase 5 continuation)
+    // Other BCJ variants (ARM64, ARMT, IA64, PPC, SPARC) - still buffer-based
+    // BCJ2 - multi-stream architecture, never streamable
+    return false;
+  }
+
+  /**
+   * Check if a folder can be streamed (vs buffered).
+   *
+   * Streaming is possible when ALL codecs in the chain support streaming.
+   * BCJ2 folders are never streamable due to their 4-stream architecture.
+   *
+   * @param folderIndex - Index of the folder to check
+   * @returns true if the folder can be streamed
+   */
+  canStreamFolder(folderIndex: number): boolean {
+    if (!this.streamsInfo) return false;
+
+    const folder = this.streamsInfo.folders[folderIndex];
+    if (!folder) return false;
+
+    // BCJ2 requires special multi-stream handling - not streamable
+    if (this.folderHasBcj2(folder)) {
+      return false;
+    }
+
+    // Check if ALL codecs in chain support streaming
+    for (let i = 0; i < folder.coders.length; i++) {
+      if (!this.codecSupportsStreaming(folder.coders[i].id)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Stream a folder's decompression.
+   *
+   * Creates a pipeline: packed data → codec decoders → output stream
+   *
+   * @param folderIndex - Index of folder to decompress
+   * @returns Object with output stream and control methods
+   */
+  streamFolder(folderIndex: number): {
+    output: Readable;
+    pause: () => void;
+    resume: () => void;
+    destroy: (err?: Error) => void;
+  } {
+    if (!this.streamsInfo) {
+      throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
+    }
+
+    if (!this.canStreamFolder(folderIndex)) {
+      throw createCodedError('Folder does not support streaming', ErrorCode.UNSUPPORTED_CODEC);
+    }
+
+    const folder = this.streamsInfo.folders[folderIndex];
+
+    // Calculate packed data position
+    let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+
+    // Find which pack stream this folder uses
+    let packStreamIndex = 0;
+    for (let j = 0; j < folderIndex; j++) {
+      packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
+    }
+
+    // Calculate position of this pack stream
+    for (let k = 0; k < packStreamIndex; k++) {
+      packPos += this.streamsInfo.packSizes[k];
+    }
+
+    const packSize = this.streamsInfo.packSizes[packStreamIndex];
+
+    // Create readable stream from packed data
+    const packedStream = this.source.createReadStream(packPos, packSize);
+
+    // Build codec pipeline
+    let stream: Readable = packedStream;
+    const decoders: Stream.Transform[] = [];
+
+    for (let i = 0; i < folder.coders.length; i++) {
+      const coderInfo = folder.coders[i];
+      const codec = getCodec(coderInfo.id);
+      const unpackSize = folder.unpackSizes[i];
+      const decoder = codec.createDecoder(coderInfo.properties, unpackSize);
+      decoders.push(decoder);
+      stream = stream.pipe(decoder);
+    }
+
+    return {
+      output: stream,
+      pause: () => packedStream.pause(),
+      resume: () => packedStream.resume(),
+      destroy: (err?: Error) => {
+        // Check for destroy method existence (not available in Node 4 and earlier)
+        const ps = packedStream as NodeJS.ReadableStream & { destroy?: (err?: Error) => void };
+        if (typeof ps.destroy === 'function') ps.destroy(err);
+        for (let i = 0; i < decoders.length; i++) {
+          const d = decoders[i] as NodeJS.ReadableStream & { destroy?: (err?: Error) => void };
+          if (typeof d.destroy === 'function') d.destroy(err);
+        }
+      },
+    };
+  }
+
+  /**
+   * Get a streaming entry stream (Promise-based API).
+   *
+   * For streamable folders: Returns a true streaming decompression
+   * For non-streamable folders: Falls back to buffered extraction
+   *
+   * @param entry - The entry to get stream for
+   * @returns Promise resolving to readable stream
+   */
+  async getEntryStreamStreaming(entry: SevenZipEntry): Promise<Readable> {
+    if (!entry._hasStream || entry.type === 'directory') {
+      const emptyStream = new PassThrough();
+      emptyStream.end();
+      return emptyStream;
+    }
+
+    const folderIndex = entry._folderIndex;
+
+    // Fall back to buffered if not streamable
+    if (!this.canStreamFolder(folderIndex)) {
+      return this.getEntryStream(entry);
+    }
+
+    const filesInFolder = this.filesPerFolder[folderIndex] || 1;
+
+    if (filesInFolder === 1) {
+      // Single file - direct streaming
+      return this.getEntryStreamDirect(entry);
+    }
+    // Multi-file folders use FolderStreamSplitter (Phase 2)
+    return this.getEntryStreamFromSplitter(entry);
+  }
+
+  /**
+   * Direct streaming for single-file folders.
+   * Pipes folder decompression directly to output with CRC verification.
+   */
+  private getEntryStreamDirect(entry: SevenZipEntry): Promise<Readable> {
+    return new Promise((resolve, reject) => {
+      const outputStream = new PassThrough();
+      let crcValue = 0;
+      const verifyCrc = entry._crc !== undefined;
+
+      try {
+        const folderStream = this.streamFolder(entry._folderIndex);
+
+        folderStream.output.on('data', (chunk: Buffer) => {
+          if (verifyCrc) {
+            crcValue = crc32(chunk, crcValue);
+          }
+
+          // Handle backpressure
+          if (!outputStream.write(chunk)) {
+            folderStream.pause();
+            outputStream.once('drain', () => folderStream.resume());
+          }
+        });
+
+        folderStream.output.on('end', () => {
+          // Verify CRC
+          if (verifyCrc && crcValue !== entry._crc) {
+            const err = createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc?.toString(16)}, got ${crcValue.toString(16)}`, ErrorCode.CRC_MISMATCH);
+            outputStream.destroy(err);
+            return;
+          }
+
+          outputStream.end();
+
+          // Track extraction
+          this.extractedPerFolder[entry._folderIndex] = (this.extractedPerFolder[entry._folderIndex] || 0) + 1;
+        });
+
+        folderStream.output.on('error', (err: Error) => {
+          outputStream.destroy(err);
+        });
+
+        resolve(outputStream);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * Get stream from folder splitter (for multi-file folders).
+   * Creates splitter on first access, reuses for subsequent files in same folder.
+   */
+  private getEntryStreamFromSplitter(entry: SevenZipEntry): Promise<Readable> {
+    return new Promise((resolve, reject) => {
+      const folderIndex = entry._folderIndex;
+
+      // Get or create splitter for this folder
+      let splitter = this.folderSplitters[folderIndex];
+
+      if (!splitter) {
+        // Create new splitter with file sizes and CRCs
+        const folderInfo = this.getFolderFileInfo(folderIndex);
+
+        splitter = new FolderStreamSplitter({
+          fileSizes: folderInfo.fileSizes,
+          verifyCrc: true,
+          expectedCrcs: folderInfo.expectedCrcs,
+        });
+
+        this.folderSplitters[folderIndex] = splitter;
+
+        // Start streaming the folder
+        let folderStream: ReturnType<typeof this.streamFolder>;
+        try {
+          folderStream = this.streamFolder(folderIndex);
+        } catch (err) {
+          delete this.folderSplitters[folderIndex];
+          reject(err);
+          return;
+        }
+
+        folderStream.output.on('data', (chunk: Buffer) => {
+          // Handle backpressure from splitter
+          if (!splitter?.write(chunk)) {
+            folderStream.pause();
+            splitter?.onDrain(() => {
+              folderStream.resume();
+            });
+          }
+        });
+
+        folderStream.output.on('end', () => {
+          splitter?.end();
+          delete this.folderSplitters[folderIndex];
+        });
+
+        folderStream.output.on('error', (_err: Error) => {
+          splitter?.end();
+          delete this.folderSplitters[folderIndex];
+        });
+      }
+
+      // Get this entry's stream from splitter
+      try {
+        const fileStream = splitter.getFileStream(entry._streamIndexInFolder);
+
+        // Track extraction when stream ends
+        fileStream.on('end', () => {
+          this.extractedPerFolder[folderIndex] = (this.extractedPerFolder[folderIndex] || 0) + 1;
+        });
+
+        resolve(fileStream);
+      } catch (err) {
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * Get file sizes and CRCs for all files in a folder (in stream order).
+   * Used by FolderStreamSplitter to know file boundaries.
+   */
+  private getFolderFileInfo(folderIndex: number): {
+    fileSizes: number[];
+    expectedCrcs: (number | undefined)[];
+  } {
+    const fileSizes: number[] = [];
+    const expectedCrcs: (number | undefined)[] = [];
+
+    // Collect entries in this folder, sorted by stream index
+    const folderEntries: SevenZipEntry[] = [];
+    for (let i = 0; i < this.entries.length; i++) {
+      const e = this.entries[i];
+      if (e._folderIndex === folderIndex && e._hasStream) {
+        folderEntries.push(e);
+      }
+    }
+
+    // Sort by stream index within folder
+    folderEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+
+    for (let i = 0; i < folderEntries.length; i++) {
+      const entry = folderEntries[i];
+      fileSizes.push(entry.size);
+      expectedCrcs.push(entry._crc);
+    }
+
+    return { fileSizes: fileSizes, expectedCrcs: expectedCrcs };
   }
 }
 
