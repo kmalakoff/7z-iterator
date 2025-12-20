@@ -4,7 +4,7 @@
 // Uses unbzip2-stream's internal bzip2 library for both sync and streaming decompression
 
 import { bufferFrom } from 'extract-base-iterator';
-import type { Transform } from 'readable-stream';
+import type { Transform } from 'stream';
 import unbzip2Stream from 'unbzip2-stream';
 
 // Access the internal bzip2 decoder from unbzip2-stream
