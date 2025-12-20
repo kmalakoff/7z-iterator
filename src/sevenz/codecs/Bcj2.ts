@@ -9,7 +9,7 @@
 //   Stream 3: Range coder data (probability decisions)
 
 import { allocBuffer } from 'extract-base-iterator';
-import type { Transform } from 'readable-stream';
+import type { Transform } from 'stream';
 import createBufferingDecoder from './createBufferingDecoder.ts';
 
 // Range coder constants

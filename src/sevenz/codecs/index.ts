@@ -1,7 +1,7 @@
 // Codec registry for 7z decompression
 // Each codec provides a decode function and optionally a streaming decoder
 
-import type { Transform } from 'readable-stream';
+import type { Transform } from 'stream';
 import { CodecId, createCodedError, ErrorCode } from '../constants.ts';
 import { createAesDecoder, decodeAes, getPassword, setPassword } from './Aes.ts';
 import { createBcjDecoder, decodeBcj } from './Bcj.ts';
