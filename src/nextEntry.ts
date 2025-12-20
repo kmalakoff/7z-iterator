@@ -4,10 +4,16 @@ import compact from 'lodash.compact';
 import path from 'path';
 import FileEntry from './FileEntry.ts';
 import type SevenZipIterator from './SevenZipIterator.ts';
-import type { SevenZipEntry } from './sevenz/SevenZipParser.ts';
+import type { SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
 import type { Entry, EntryCallback } from './types.ts';
 
 export type NextCallback = (error?: Error, entry?: Entry) => void;
+
+/** @internal */
+interface InternalIterator {
+  next(): SevenZipEntry | null;
+  getParser(): SevenZipParser;
+}
 
 // Entry attributes object that gets mutated in switch - union of possible shapes
 // mtime is number for FileAttributes compatibility (timestamp in ms)
@@ -21,13 +27,14 @@ type EntryAttributesBuilder = {
 };
 
 export default function nextEntry<_T>(iterator: SevenZipIterator, callback: EntryCallback): void {
-  if (!iterator.iterator) {
+  const internalIter = iterator._iterator as InternalIterator | null;
+  if (!internalIter) {
     callback(new Error('iterator missing'));
     return;
   }
 
   let entry: SevenZipEntry | null = null;
-  entry = iterator.iterator.next();
+  entry = internalIter.next();
 
   const nextCallback = once((err?: Error, entry?: Entry) => {
     // keep processing
@@ -69,33 +76,28 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
     case 'link': {
       // For symlinks, the file content IS the symlink target path
       // Read the content to get the linkpath for SymbolicLinkEntry
-      const parser = iterator.iterator.getParser();
+      const parser = internalIter.getParser();
+      const stream = parser.getEntryStream(entry);
 
-      // Use callback-based async decompression
-      parser.getEntryStreamAsync(entry, (err, stream) => {
-        if (err) return nextCallback(err);
-        if (!stream) return nextCallback(new Error('No stream returned'));
+      const chunks: Buffer[] = [];
 
-        const chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => {
+        chunks.push(chunk);
+      });
+      stream.on('end', () => {
+        const linkpath = Buffer.concat(chunks).toString('utf8');
 
-        stream.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-        });
-        stream.on('end', () => {
-          const linkpath = Buffer.concat(chunks).toString('utf8');
+        const linkAttributes: LinkAttributes = {
+          path: attributes.path,
+          mtime: attributes.mtime,
+          mode: attributes.mode,
+          linkpath: linkpath,
+        };
 
-          const linkAttributes: LinkAttributes = {
-            path: attributes.path,
-            mtime: attributes.mtime,
-            mode: attributes.mode,
-            linkpath: linkpath,
-          };
-
-          nextCallback(null, new SymbolicLinkEntry(linkAttributes));
-        });
-        stream.on('error', (streamErr: Error) => {
-          nextCallback(streamErr);
-        });
+        nextCallback(null, new SymbolicLinkEntry(linkAttributes));
+      });
+      stream.on('error', (streamErr: Error) => {
+        nextCallback(streamErr);
       });
       return;
     }
@@ -103,8 +105,10 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
     case 'file': {
       attributes.type = 'file';
       attributes.size = entry.size;
-      const parser2 = iterator.iterator.getParser();
-      return nextCallback(null, new FileEntry(attributes as FileAttributes, entry, parser2, iterator.lock));
+      const parser = internalIter.getParser();
+
+      const stream = parser.getEntryStream(entry);
+      return nextCallback(null, new FileEntry(attributes as FileAttributes, stream, iterator.lock, entry._canStream));
     }
   }
 

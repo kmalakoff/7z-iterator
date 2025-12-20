@@ -1,23 +1,13 @@
 // Copy codec - passthrough (no compression)
 // This is the simplest codec, just passes data through unchanged
 
-import Stream from 'stream';
-
-// Use native streams when available, readable-stream only for Node 0.x
-const major = +process.versions.node.split('.')[0];
-let PassThrough: typeof Stream.PassThrough;
-if (major > 0) {
-  PassThrough = Stream.PassThrough;
-} else {
-  PassThrough = require('readable-stream').PassThrough;
-}
-type Transform = Stream.Transform;
+import { PassThrough, type Transform } from 'extract-base-iterator';
 
 /**
  * Create a Copy decoder stream
  * Simply passes through data unchanged
  */
-export function createCopyDecoder(): Transform {
+export function createCopyDecoder(): InstanceType<typeof Transform> {
   return new PassThrough();
 }
 

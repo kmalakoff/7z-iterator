@@ -20,7 +20,8 @@ import bzip2 from 'unbzip2-stream/lib/bzip2.js';
  */
 export function decodeBzip2(input: Buffer, _properties?: Buffer, _unpackSize?: number): Buffer {
   const chunks: number[] = [];
-  bzip2.simple(bzip2.array(input), (byte: number) => {
+  // Pass buffer directly - simple() calls array() internally
+  bzip2.simple(input, (byte: number) => {
     chunks.push(byte);
   });
   return bufferFrom(chunks);
