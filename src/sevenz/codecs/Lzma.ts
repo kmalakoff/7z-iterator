@@ -21,7 +21,7 @@ export function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: numb
     throw new Error('LZMA requires known unpack size');
   }
 
-  return lzmaDecode(input, properties, unpackSize);
+  return lzmaDecode(input, properties, unpackSize) as Buffer;
 }
 
 /**
