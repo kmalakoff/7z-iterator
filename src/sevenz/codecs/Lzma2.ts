@@ -25,7 +25,7 @@ export function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: num
     throw new Error('LZMA2 requires properties byte');
   }
 
-  return lzma2Decode(input, properties, unpackSize);
+  return lzma2Decode(input, properties, unpackSize) as Buffer;
 }
 
 /**

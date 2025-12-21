@@ -6,15 +6,8 @@ npm-debug.log*
 .tmp/
 .cache/
 
-# Large test fixtures should be downloaded to .tmp/fixtures/ not committed
-# See test/lib/download.ts for the proper fixture download utility
-test/data/node-releases/
-*.tar.gz
-*.tgz
-
 # agents
 .agents/
 AGENTS.md
 .claude/
 CLAUDE.md
-

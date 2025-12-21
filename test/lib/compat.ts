@@ -4,6 +4,51 @@
  */
 
 /**
+ * Buffer.from wrapper for Node.js 0.8+
+ * - Uses native Buffer.from on Node 4.5+ / ES2015+
+ * - Falls back to new Buffer() constructor on Node 0.8-4.4
+ */
+const hasBufferFrom = typeof Buffer.from === 'function' && Buffer.from !== Uint8Array.from;
+
+export function bufferFrom(data: string | number[] | Buffer | Uint8Array, encoding?: BufferEncoding): Buffer {
+  if (hasBufferFrom) {
+    if (typeof data === 'string') {
+      return Buffer.from(data, encoding);
+    }
+    return Buffer.from(data as number[] | Buffer);
+  }
+  // Node 0.8-4.4 fallback using deprecated Buffer constructor
+  // biome-ignore lint/suspicious/noExplicitAny: Buffer constructor signature changed between Node versions
+  return new (Buffer as any)(data, encoding);
+}
+
+/**
+ * Buffer.alloc wrapper for Node.js 0.8+
+ * - Uses native Buffer.alloc on Node 4.5+ / ES2015+
+ * - Falls back to new Buffer() on Node 0.8-4.4
+ */
+const hasBufferAlloc = typeof Buffer.alloc === 'function';
+
+export function bufferAlloc(size: number, fill?: number | string | Buffer, encoding?: BufferEncoding): Buffer {
+  if (hasBufferAlloc) {
+    return Buffer.alloc(size, fill, encoding);
+  }
+  // Node 0.8-4.4 fallback
+  // biome-ignore lint/suspicious/noExplicitAny: Buffer constructor signature changed between Node versions
+  const buf = new (Buffer as any)(size);
+  if (fill !== undefined) {
+    if (typeof encoding === 'string') {
+      buf.fill(fill, encoding);
+    } else {
+      buf.fill(fill);
+    }
+  } else {
+    buf.fill(0);
+  }
+  return buf;
+}
+
+/**
  * Array.prototype.find wrapper for Node.js 0.8+
  * - Uses native find on Node 4.0+ / ES2015+
  * - Falls back to loop on Node 0.8-3.x
