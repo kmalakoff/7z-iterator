@@ -518,7 +518,6 @@ describe('fixtures', () => {
   });
 
   describe('symlink.7z (Unix symlinks)', () => {
-    // Uses fast-extract fixture which has proper symlink mode bits (S_IFLNK = 0xA000)
     it('should detect symlinks with correct linkpath', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'symlink.7z'));
       const symlinks: { path: string; type: string; linkpath?: string }[] = [];

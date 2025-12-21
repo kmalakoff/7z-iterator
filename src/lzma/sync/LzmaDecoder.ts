@@ -19,6 +19,7 @@ import {
   kNumPosStatesBitsMax,
   kNumStates,
   kStartPosModelIndex,
+  type OutputSink,
   parseProperties,
   stateIsCharState,
   stateUpdateChar,
@@ -165,11 +166,17 @@ class OutWindow {
   private buffer: Buffer;
   private windowSize: number;
   private pos: number;
+  private sink?: {
+    write(buffer: Buffer): void;
+  };
+  private streamPos: number;
 
-  constructor() {
+  constructor(sink?: OutputSink) {
     this.buffer = allocBufferUnsafe(0); // Replaced by create() before use
     this.windowSize = 0;
     this.pos = 0;
+    this.sink = sink;
+    this.streamPos = 0;
   }
 
   create(windowSize: number): void {
@@ -178,18 +185,34 @@ class OutWindow {
     }
     this.windowSize = windowSize;
     this.pos = 0;
+    this.streamPos = 0;
   }
 
   init(solid: boolean): void {
     if (!solid) {
       this.pos = 0;
+      this.streamPos = 0;
     }
   }
 
   putByte(b: number): void {
     this.buffer[this.pos++] = b;
     if (this.pos >= this.windowSize) {
-      this.pos = 0;
+      if (this.sink) {
+        this.flush();
+        this.pos = 0;
+      } else {
+        this.pos = 0;
+      }
+    }
+  }
+
+  flush(): void {
+    const size = this.pos - this.streamPos;
+    if (size > 0 && this.sink) {
+      const chunk = this.buffer.slice(this.streamPos, this.streamPos + size);
+      this.sink.write(chunk);
+      this.streamPos = this.pos;
     }
   }
 
@@ -265,8 +288,8 @@ export class LzmaDecoder {
   private prevByte: number;
   private totalPos: number;
 
-  constructor() {
-    this.outWindow = new OutWindow();
+  constructor(outputSink?: OutputSink) {
+    this.outWindow = new OutWindow(outputSink);
     this.rangeDecoder = new RangeDecoder();
 
     this.isMatchDecoders = initBitModels(null, kNumStates << kNumPosStatesBitsMax);
@@ -388,6 +411,134 @@ export class LzmaDecoder {
     if (data.length > 0) {
       this.prevByte = data[data.length - 1];
     }
+  }
+
+  /**
+   * Flush any remaining data in the OutWindow to the sink
+   */
+  flushOutWindow(): void {
+    this.outWindow.flush();
+  }
+
+  /**
+   * Decode LZMA data with streaming output (no buffer accumulation)
+   * @param input - Compressed input buffer
+   * @param inputOffset - Offset into input buffer
+   * @param outSize - Expected output size
+   * @param solid - If true, preserve state from previous decode
+   * @returns Number of bytes written to sink
+   */
+  decodeWithSink(input: Buffer, inputOffset: number, outSize: number, solid = false): number {
+    this.rangeDecoder.setInput(input, inputOffset);
+
+    if (!solid) {
+      this.outWindow.init(false);
+      this.initProbabilities();
+      this.state = 0;
+      this.rep0 = 0;
+      this.rep1 = 0;
+      this.rep2 = 0;
+      this.rep3 = 0;
+      this.prevByte = 0;
+      this.totalPos = 0;
+    } else {
+      this.outWindow.init(true);
+    }
+
+    let outPos = 0;
+    let cumPos = this.totalPos;
+
+    while (outPos < outSize) {
+      const posState = cumPos & this.posStateMask;
+
+      if (this.rangeDecoder.decodeBit(this.isMatchDecoders, (this.state << kNumPosStatesBitsMax) + posState) === 0) {
+        // Literal
+        const decoder2 = this.literalDecoder.getDecoder(cumPos, this.prevByte);
+        if (!stateIsCharState(this.state)) {
+          this.prevByte = decoder2.decodeWithMatchByte(this.rangeDecoder, this.outWindow.getByte(this.rep0));
+        } else {
+          this.prevByte = decoder2.decodeNormal(this.rangeDecoder);
+        }
+        this.outWindow.putByte(this.prevByte);
+        outPos++;
+        this.state = stateUpdateChar(this.state);
+        cumPos++;
+      } else {
+        // Match or rep
+        let len: number;
+
+        if (this.rangeDecoder.decodeBit(this.isRepDecoders, this.state) === 1) {
+          // Rep match
+          len = 0;
+          if (this.rangeDecoder.decodeBit(this.isRepG0Decoders, this.state) === 0) {
+            if (this.rangeDecoder.decodeBit(this.isRep0LongDecoders, (this.state << kNumPosStatesBitsMax) + posState) === 0) {
+              this.state = stateUpdateShortRep(this.state);
+              len = 1;
+            }
+          } else {
+            let distance: number;
+            if (this.rangeDecoder.decodeBit(this.isRepG1Decoders, this.state) === 0) {
+              distance = this.rep1;
+            } else {
+              if (this.rangeDecoder.decodeBit(this.isRepG2Decoders, this.state) === 0) {
+                distance = this.rep2;
+              } else {
+                distance = this.rep3;
+                this.rep3 = this.rep2;
+              }
+              this.rep2 = this.rep1;
+            }
+            this.rep1 = this.rep0;
+            this.rep0 = distance;
+          }
+          if (len === 0) {
+            len = kMatchMinLen + this.repLenDecoder.decode(this.rangeDecoder, posState);
+            this.state = stateUpdateRep(this.state);
+          }
+        } else {
+          // Normal match
+          this.rep3 = this.rep2;
+          this.rep2 = this.rep1;
+          this.rep1 = this.rep0;
+          len = kMatchMinLen + this.lenDecoder.decode(this.rangeDecoder, posState);
+          this.state = stateUpdateMatch(this.state);
+
+          const posSlot = this.posSlotDecoder[getLenToPosState(len)].decode(this.rangeDecoder);
+          if (posSlot >= kStartPosModelIndex) {
+            const numDirectBits = (posSlot >> 1) - 1;
+            this.rep0 = (2 | (posSlot & 1)) << numDirectBits;
+            if (posSlot < kEndPosModelIndex) {
+              this.rep0 += reverseDecodeFromArray(this.posDecoders, this.rep0 - posSlot - 1, this.rangeDecoder, numDirectBits);
+            } else {
+              this.rep0 += this.rangeDecoder.decodeDirectBits(numDirectBits - kNumAlignBits) << kNumAlignBits;
+              this.rep0 += this.posAlignDecoder.reverseDecode(this.rangeDecoder);
+              if (this.rep0 < 0) {
+                if (this.rep0 === -1) break;
+                throw new Error('LZMA: Invalid distance');
+              }
+            }
+          } else {
+            this.rep0 = posSlot;
+          }
+        }
+
+        if (this.rep0 >= cumPos || this.rep0 >= this.dictionarySizeCheck) {
+          throw new Error('LZMA: Invalid distance');
+        }
+
+        // Copy match bytes
+        for (let i = 0; i < len; i++) {
+          const b = this.outWindow.getByte(this.rep0);
+          this.outWindow.putByte(b);
+          outPos++;
+        }
+        cumPos += len;
+        this.prevByte = this.outWindow.getByte(0);
+      }
+    }
+
+    this.totalPos = cumPos;
+    return outPos;
   }
 
   /**
@@ -519,10 +670,18 @@ export class LzmaDecoder {
  * @param input - Compressed data (without 5-byte properties header)
  * @param properties - 5-byte LZMA properties
  * @param outSize - Expected output size
- * @returns Decompressed data
+ * @param outputSink - Optional output sink for zero-copy decoding (returns bytes written)
+ * @returns Decompressed data (or bytes written if outputSink provided)
  */
-export function decodeLzma(input: Buffer, properties: Buffer | Uint8Array, outSize: number): Buffer {
-  const decoder = new LzmaDecoder();
+export function decodeLzma(input: Buffer, properties: Buffer | Uint8Array, outSize: number, outputSink?: OutputSink): Buffer | number {
+  const decoder = new LzmaDecoder(outputSink);
   decoder.setDecoderProperties(properties);
+  if (outputSink) {
+    // Zero-copy mode: write to sink during decode
+    const bytesWritten = decoder.decodeWithSink(input, 0, outSize, false);
+    decoder.flushOutWindow();
+    return bytesWritten;
+  }
+  // Buffering mode: pre-allocated buffer, direct writes (zero-copy)
   return decoder.decode(input, 0, outSize, false);
 }

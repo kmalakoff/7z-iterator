@@ -199,3 +199,11 @@ export function parseLzma2DictionarySize(prop: number): number {
   const exp = (prop >>> 1) + 11;
   return base << exp;
 }
+
+/**
+ * Output sink interface for fast streaming decode
+ * Can be a Buffer (with write method) or a stream with write() method
+ */
+export interface OutputSink {
+  write(buffer: Buffer): void;
+}
