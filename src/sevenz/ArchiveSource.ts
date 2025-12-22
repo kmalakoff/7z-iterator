@@ -96,6 +96,37 @@ export class FileSource implements ArchiveSource {
   }
 
   read(position: number, length: number): Buffer {
+    // Handle large reads by chunking to fit 32-bit signed int limit
+    const MAX_INT32 = 0x7fffffff; // 2,147,483,647 bytes (~2GB)
+
+    if (length <= MAX_INT32) {
+      return this.readChunk(position, length);
+    }
+
+    // For large reads, split into multiple chunks
+    const chunks: Buffer[] = [];
+    let totalBytesRead = 0;
+    let currentPos = position;
+
+    while (totalBytesRead < length) {
+      const remaining = length - totalBytesRead;
+      const chunkSize = Math.min(remaining, MAX_INT32);
+      const chunk = this.readChunk(currentPos, chunkSize);
+
+      chunks.push(chunk);
+      totalBytesRead += chunk.length;
+      currentPos += chunk.length;
+
+      if (chunk.length < chunkSize) {
+        // EOF reached
+        break;
+      }
+    }
+
+    return Buffer.concat(chunks);
+  }
+
+  private readChunk(position: number, length: number): Buffer {
     const buf = allocBuffer(length);
     const bytesRead = fs.readSync(this.fd, buf, 0, length, position);
     if (bytesRead < length) {
