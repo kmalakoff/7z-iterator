@@ -1,6 +1,5 @@
 import once from 'call-once-fn';
 import { type DirectoryAttributes, DirectoryEntry, type FileAttributes, type LinkAttributes, SymbolicLinkEntry } from 'extract-base-iterator';
-import compact from 'lodash.compact';
 import path from 'path';
 import FileEntry from './FileEntry.ts';
 import type SevenZipIterator from './SevenZipIterator.ts';
@@ -62,7 +61,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
   // mtime must be timestamp (number) for FileAttributes compatibility
   const mtimeDate = entry.mtime || new Date();
   const attributes: EntryAttributesBuilder = {
-    path: compact(entry.path.split(path.sep)).join(path.sep),
+    path: entry.path.split(path.sep).filter(Boolean).join(path.sep),
     basename: entry.name,
     mtime: mtimeDate.getTime(),
     mode: entry.mode !== undefined ? entry.mode : defaultMode,

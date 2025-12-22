@@ -1,15 +1,7 @@
-// LZMA decoders for external use
+// 7z-iterator - high-level 7z archive iterator
 
-export type { OutputSink } from './lzma/index.ts';
-export {
-  createLzma2Decoder,
-  createLzmaDecoder,
-  decodeLzma,
-  decodeLzma2,
-  detectFormat,
-  Lzma2Decoder,
-  LzmaDecoder,
-} from './lzma/index.ts';
+export * from './FileEntry.ts';
+export * from './nextEntry.ts';
 export { default } from './SevenZipIterator.ts';
+export * from './sevenz/index.ts';
 export * from './types.ts';
-export { createXZDecoder, decodeXZ } from './xz/Decoder.ts';
