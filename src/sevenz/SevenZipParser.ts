@@ -699,7 +699,10 @@ export class SevenZipParser {
     }
 
     // Calculate packed data position
-    let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
+    // Use Math.max to prevent 32-bit signed overflow
+    const signedHeaderSize = SIGNATURE_HEADER_SIZE;
+    const signedPackPos = this.streamsInfo.packPos;
+    let packPos = Math.max(signedHeaderSize, 0) + Math.max(signedPackPos, 0);
 
     // Find which pack stream this folder uses
     let packStreamIndex = 0;
@@ -707,12 +710,26 @@ export class SevenZipParser {
       packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
     }
 
-    // Calculate position of this pack stream
+    // Calculate position of this pack stream - PREVENT OVERFLOW
     for (let k = 0; k < packStreamIndex; k++) {
-      packPos += this.streamsInfo.packSizes[k];
+      const size = this.streamsInfo.packSizes[k];
+      if (packPos + size < packPos) {
+        throw createCodedError(`Pack position overflow at index ${k}`, ErrorCode.CORRUPT_ARCHIVE);
+      }
+      packPos += size;
     }
 
     const packSize = this.streamsInfo.packSizes[packStreamIndex];
+
+    // Validate pack size to prevent overflow
+    // Upper bound is Number.MAX_SAFE_INTEGER (2^53-1 = 9PB) - safe for all realistic archives
+    if (packSize < 0 || packSize > Number.MAX_SAFE_INTEGER) {
+      throw createCodedError(`Invalid pack size: ${packSize}`, ErrorCode.CORRUPT_ARCHIVE);
+    }
+
+    if (packPos < 0 || packPos > Number.MAX_SAFE_INTEGER) {
+      throw createCodedError(`Invalid pack position: ${packPos}`, ErrorCode.CORRUPT_ARCHIVE);
+    }
 
     // Read packed data
     const packedData = this.source.read(packPos, packSize);
@@ -724,6 +741,10 @@ export class SevenZipParser {
       const codec = getCodec(coderInfo.id);
       // Get unpack size for this coder (needed by LZMA)
       const unpackSize = folder.unpackSizes[l];
+      // Validate unpack size to prevent overflow
+      if (unpackSize < 0 || unpackSize > Number.MAX_SAFE_INTEGER) {
+        throw createCodedError(`Invalid unpack size: ${unpackSize}`, ErrorCode.CORRUPT_ARCHIVE);
+      }
       data2 = codec.decode(data2, coderInfo.properties, unpackSize);
     }
 
