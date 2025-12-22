@@ -63,7 +63,7 @@
     "short-hash": "^1.0.0",
     "temp-suffix": "^1.0.10",
     "unbzip2-stream": "1.0.8",
-    "xz-compat": "^0.2.0"
+    "xz-compat": "^0.3.0"
   },
   "devDependencies": {
     "@types/mocha": "*",
