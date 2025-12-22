@@ -20,6 +20,7 @@
 
 import { crc32, PassThrough } from 'extract-base-iterator';
 import type Stream from 'stream';
+import { defer } from '../lib/defer.ts';
 import type { ArchiveSource } from './ArchiveSource.ts';
 import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
 import { FolderStreamSplitter } from './FolderStreamSplitter.ts';
@@ -512,7 +513,7 @@ export class SevenZipParser {
     stream._read = (size: number) => {
       if (!started && !destroyed) {
         started = true;
-        setTimeout(() => {
+        defer(() => {
           if (destroyed) return;
 
           try {
@@ -549,7 +550,7 @@ export class SevenZipParser {
               stream.destroy(err as Error);
             }
           }
-        }, 0);
+        });
       }
       return originalRead(size);
     };
@@ -590,7 +591,7 @@ export class SevenZipParser {
     stream._read = (size: number) => {
       if (!started && !destroyed) {
         started = true;
-        setTimeout(() => {
+        defer(() => {
           if (destroyed) return;
 
           try {
@@ -633,7 +634,7 @@ export class SevenZipParser {
               stream.destroy(err as Error);
             }
           }
-        }, 0);
+        });
       }
       return originalRead(size);
     };
