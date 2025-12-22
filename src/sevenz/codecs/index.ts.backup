@@ -5,6 +5,8 @@ import type { Transform } from 'stream';
 import {
   createLzma2Decoder as _createLzma2Decoder,
   createLzmaDecoder as _createLzmaDecoder,
+  decodeLzma as _decodeLzma,
+  decodeLzma2 as _decodeLzma2,
   createBcjArm64Decoder,
   createBcjArmDecoder,
   createBcjArmtDecoder,
@@ -39,15 +41,45 @@ export interface Codec {
   createDecoder: (properties?: Buffer, unpackSize?: number) => Transform;
 }
 
-// Simple wrappers with validation that use xz-compat's optimized decode7zLjma/decode7zLzma2
-function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: number): Buffer {
+// Internal wrapper (returns Buffer | number when OutputSink used)
+function _decodeLzmaInternal(input: Buffer, properties: Buffer, unpackSize: number, outputSink?: { write: (buffer: Buffer) => void }): Buffer | number {
+  // For Node 14+, use high-level API with native acceleration
+  // For older versions, use OutputSink for memory efficiency
+  const isNode14Plus = parseInt(process.versions.node.split('.')[0], 10) >= 14;
+
+  if (outputSink && !isNode14Plus) {
+    // Pure JS on older Node: Use OutputSink for memory efficiency
+    return _decodeLzma(input, properties, unpackSize, outputSink);
+  }
+
+  // Node 14+ (native available): Use high-level API - native manages memory efficiently
+  return decode7zLzma(input, properties, unpackSize);
+}
+
+function _decodeLzma2Internal(input: Buffer, properties: Buffer, unpackSize: number, outputSink?: { write: (buffer: Buffer) => void }): Buffer | number {
+  // For Node 14+, use high-level API with native acceleration
+  // For older versions, use OutputSink for memory efficiency
+  const isNode14Plus = parseInt(process.versions.node.split('.')[0], 10) >= 14;
+
+  if (outputSink && !isNode14Plus) {
+    // Pure JS on older Node: Use OutputSink for memory efficiency
+    return _decodeLzma2(input, properties, unpackSize, outputSink);
+  }
+
+  // Node 14+ (native available): Use high-level API - native manages memory efficiently
+  return decode7zLzma2(input, properties, unpackSize);
+}
+
+// Public wrappers that always return Buffer (for compatibility with existing code)
+function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: number, outputSink?: { write: (buffer: Buffer) => void }): Buffer {
   if (!properties || properties.length < 5) {
     throw new Error('LZMA requires 5-byte properties');
   }
   if (typeof unpackSize !== 'number' || unpackSize < 0) {
     throw new Error('LZMA requires known unpack size');
   }
-  return decode7zLzma(input, properties, unpackSize);
+  const result = _decodeLzmaInternal(input, properties, unpackSize, outputSink);
+  return Buffer.isBuffer(result) ? result : Buffer.alloc(0);
 }
 
 function createLzmaDecoder(properties?: Buffer, unpackSize?: number): Transform {
@@ -60,11 +92,12 @@ function createLzmaDecoder(properties?: Buffer, unpackSize?: number): Transform 
   return _createLzmaDecoder(properties, unpackSize) as Transform;
 }
 
-function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: number): Buffer {
+function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: number, outputSink?: { write: (buffer: Buffer) => void }): Buffer {
   if (!properties || properties.length < 1) {
     throw new Error('LZMA2 requires properties byte');
   }
-  return decode7zLzma2(input, properties, unpackSize);
+  const result = _decodeLzma2Internal(input, properties, unpackSize, outputSink);
+  return Buffer.isBuffer(result) ? result : Buffer.alloc(0);
 }
 
 function createLzma2Decoder(properties?: Buffer, _unpackSize?: number): Transform {
