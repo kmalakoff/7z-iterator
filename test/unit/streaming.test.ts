@@ -139,33 +139,39 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
+        }
 
-      const entries = parser.getEntries();
-      const fileEntry = arrayFind(entries, (e) => e.type === 'file');
-      assert.ok(fileEntry, 'Should have a file entry');
-      assert.ok(parser.canStreamFolder(fileEntry._folderIndex), 'BZip2 folder should be streamable');
+        const entries = parser.getEntries();
+        const fileEntry = arrayFind(entries, (e) => e.type === 'file');
+        assert.ok(fileEntry, 'Should have a file entry');
+        assert.ok(parser.canStreamFolder(fileEntry._folderIndex), 'BZip2 folder should be streamable');
 
-      parser
-        .getEntryStreamStreaming(fileEntry)
-        .then((stream) => {
-          const chunks: Buffer[] = [];
-          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-          stream.on('end', () => {
-            const content = Buffer.concat(chunks).toString('utf8').trim();
-            assert.strictEqual(content, 'Test file with BZip2 compression', 'Should stream correct content');
-            parser.close();
-            done();
-          });
-          stream.on('error', (err) => {
+        parser
+          .getEntryStreamStreaming(fileEntry)
+          .then((stream) => {
+            const chunks: Buffer[] = [];
+            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+            stream.on('end', () => {
+              const content = Buffer.concat(chunks).toString('utf8').trim();
+              assert.strictEqual(content, 'Test file with BZip2 compression', 'Should stream correct content');
+              parser.close();
+              done();
+            });
+            stream.on('error', (err) => {
+              parser.close();
+              done(err);
+            });
+          })
+          .catch((err) => {
             parser.close();
             done(err);
           });
-        })
-        .catch((err) => {
-          parser.close();
-          done(err);
-        });
+      });
     });
 
     it('should stream Deflate single-file folder', (done) => {
@@ -174,33 +180,39 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
+        }
 
-      const entries = parser.getEntries();
-      const fileEntry = arrayFind(entries, (e) => e.type === 'file');
-      assert.ok(fileEntry, 'Should have a file entry');
-      assert.ok(parser.canStreamFolder(fileEntry._folderIndex), 'Deflate folder should be streamable');
+        const entries = parser.getEntries();
+        const fileEntry = arrayFind(entries, (e) => e.type === 'file');
+        assert.ok(fileEntry, 'Should have a file entry');
+        assert.ok(parser.canStreamFolder(fileEntry._folderIndex), 'Deflate folder should be streamable');
 
-      parser
-        .getEntryStreamStreaming(fileEntry)
-        .then((stream) => {
-          const chunks: Buffer[] = [];
-          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-          stream.on('end', () => {
-            const content = Buffer.concat(chunks).toString('utf8').trim();
-            assert.strictEqual(content, 'Test file with Deflate compression', 'Should stream correct content');
-            parser.close();
-            done();
-          });
-          stream.on('error', (err) => {
+        parser
+          .getEntryStreamStreaming(fileEntry)
+          .then((stream) => {
+            const chunks: Buffer[] = [];
+            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+            stream.on('end', () => {
+              const content = Buffer.concat(chunks).toString('utf8').trim();
+              assert.strictEqual(content, 'Test file with Deflate compression', 'Should stream correct content');
+              parser.close();
+              done();
+            });
+            stream.on('error', (err) => {
+              parser.close();
+              done(err);
+            });
+          })
+          .catch((err) => {
             parser.close();
             done(err);
           });
-        })
-        .catch((err) => {
-          parser.close();
-          done(err);
-        });
+      });
     });
 
     it('should stream LZMA2 single-file folder', (done) => {
@@ -209,34 +221,39 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
+        }
 
-      const entries = parser.getEntries();
-      const fileEntry = arrayFind(entries, (e) => e.type === 'file');
-      assert.ok(fileEntry, 'Should have a file entry');
-      assert.ok(parser.canStreamFolder(fileEntry._folderIndex), 'LZMA2 folder should be streamable');
+        const entries = parser.getEntries();
+        const fileEntry = arrayFind(entries, (e) => e.type === 'file');
+        assert.ok(fileEntry, 'Should have a file entry');
+        assert.ok(parser.canStreamFolder(fileEntry._folderIndex), 'LZMA2 folder should be streamable');
 
-      // Should stream directly
-      parser
-        .getEntryStreamStreaming(fileEntry)
-        .then((stream) => {
-          const chunks: Buffer[] = [];
-          stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-          stream.on('end', () => {
-            const content = Buffer.concat(chunks).toString('utf8').trim();
-            assert.ok(content.indexOf('// Test fixture file') === 0, 'Should get correct content via streaming');
-            parser.close();
-            done();
-          });
-          stream.on('error', (err) => {
+        parser
+          .getEntryStreamStreaming(fileEntry)
+          .then((stream) => {
+            const chunks: Buffer[] = [];
+            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+            stream.on('end', () => {
+              const content = Buffer.concat(chunks).toString('utf8').trim();
+              assert.ok(content.indexOf('// Test fixture file') === 0, 'Should get correct content via streaming');
+              parser.close();
+              done();
+            });
+            stream.on('error', (err) => {
+              parser.close();
+              done(err);
+            });
+          })
+          .catch((err) => {
             parser.close();
             done(err);
           });
-        })
-        .catch((err) => {
-          parser.close();
-          done(err);
-        });
+      });
     });
   });
 
@@ -300,15 +317,21 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
+        }
 
-      const entries = parser.getEntries();
-      const fileEntry = arrayFind(entries, (e) => e.type === 'file');
-      assert.ok(fileEntry, 'Should have file entry');
-      assert.strictEqual(parser.canStreamFolder(fileEntry._folderIndex), true, 'BZip2 should be streamable');
+        const entries = parser.getEntries();
+        const fileEntry = arrayFind(entries, (e) => e.type === 'file');
+        assert.ok(fileEntry, 'Should have file entry');
+        assert.strictEqual(parser.canStreamFolder(fileEntry._folderIndex), true, 'BZip2 should be streamable');
 
-      parser.close();
-      done();
+        parser.close();
+        done();
+      });
     });
 
     it('should return true for Deflate folder', (done) => {
@@ -317,15 +340,21 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
+        }
 
-      const entries = parser.getEntries();
-      const fileEntry = arrayFind(entries, (e) => e.type === 'file');
-      assert.ok(fileEntry, 'Should have file entry');
-      assert.strictEqual(parser.canStreamFolder(fileEntry._folderIndex), true, 'Deflate should be streamable');
+        const entries = parser.getEntries();
+        const fileEntry = arrayFind(entries, (e) => e.type === 'file');
+        assert.ok(fileEntry, 'Should have file entry');
+        assert.strictEqual(parser.canStreamFolder(fileEntry._folderIndex), true, 'Deflate should be streamable');
 
-      parser.close();
-      done();
+        parser.close();
+        done();
+      });
     });
 
     it('should return true for LZMA2 folder', (done) => {
@@ -334,15 +363,21 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
+        }
 
-      const entries = parser.getEntries();
-      const fileEntry = arrayFind(entries, (e) => e.type === 'file');
-      assert.ok(fileEntry, 'Should have file entry');
-      assert.strictEqual(parser.canStreamFolder(fileEntry._folderIndex), true, 'LZMA2 should be streamable');
+        const entries = parser.getEntries();
+        const fileEntry = arrayFind(entries, (e) => e.type === 'file');
+        assert.ok(fileEntry, 'Should have file entry');
+        assert.strictEqual(parser.canStreamFolder(fileEntry._folderIndex), true, 'LZMA2 should be streamable');
 
-      parser.close();
-      done();
+        parser.close();
+        done();
+      });
     });
   });
 
@@ -353,72 +388,63 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
-
-      const entries = parser.getEntries();
-      const fileEntries = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i].type === 'file') {
-          fileEntries.push(entries[i]);
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
         }
-      }
 
-      // Should have multiple files in the archive
-      assert.ok(fileEntries.length >= 2, 'Should have at least 2 file entries');
+        const entries = parser.getEntries();
+        const fileEntries = [];
+        for (let i = 0; i < entries.length; i++) {
+          if (entries[i].type === 'file') {
+            fileEntries.push(entries[i]);
+          }
+        }
 
-      // Check that all files are in same folder (solid)
-      const folderIndex = fileEntries[0]._folderIndex;
-      for (let i = 1; i < fileEntries.length; i++) {
-        assert.strictEqual(fileEntries[i]._folderIndex, folderIndex, 'All files should be in same folder (solid)');
-      }
+        assert.ok(fileEntries.length >= 2, 'Should have at least 2 file entries');
 
-      // Verify folder is streamable
-      assert.ok(parser.canStreamFolder(folderIndex), 'Solid BZip2 folder should be streamable');
+        const folderIndex = fileEntries[0]._folderIndex;
+        for (let i = 1; i < fileEntries.length; i++) {
+          assert.strictEqual(fileEntries[i]._folderIndex, folderIndex, 'All files should be in same folder (solid)');
+        }
 
-      // Stream each file in order using the splitter
-      const contents: { [key: string]: string } = {};
-      let pending = fileEntries.length;
+        assert.ok(parser.canStreamFolder(folderIndex), 'Solid BZip2 folder should be streamable');
 
-      // Sort by stream index for correct ordering
-      fileEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        const contents: { [key: string]: string } = {};
+        let pending = fileEntries.length;
 
-      for (let i = 0; i < fileEntries.length; i++) {
-        const entry = fileEntries[i];
-        parser
-          .getEntryStreamStreaming(entry)
-          .then((stream) => {
-            const chunks: Buffer[] = [];
-            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-            stream.on('end', () => {
-              contents[entry.path] = Buffer.concat(chunks).toString('utf8');
-              pending--;
-              if (pending === 0) {
-                // All files streamed - verify contents
-                const paths = [];
-                for (const p in contents) {
-                  paths.push(p);
+        fileEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+
+        for (let i = 0; i < fileEntries.length; i++) {
+          const entry = fileEntries[i];
+          parser
+            .getEntryStreamStreaming(entry)
+            .then((stream) => {
+              const chunks: Buffer[] = [];
+              stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+              stream.on('end', () => {
+                contents[entry.name] = Buffer.concat(chunks).toString('utf8').trim();
+                pending--;
+                if (pending === 0) {
+                  assert.strictEqual(contents['file1.txt'], 'File 1 content - this is the first file', 'Should read first file');
+                  assert.strictEqual(contents['file2.txt'], 'File 2 content - this is the second file with more text', 'Should read second file');
+                  parser.close();
+                  done();
                 }
-                assert.ok(paths.length >= 2, 'Should have streamed at least 2 files');
-
-                // Verify we got content for each file
-                for (let j = 0; j < paths.length; j++) {
-                  assert.ok(contents[paths[j]].length > 0, `File ${paths[j]} should have content`);
-                }
-
+              });
+              stream.on('error', (err) => {
                 parser.close();
-                done();
-              }
-            });
-            stream.on('error', (err) => {
+                done(err);
+              });
+            })
+            .catch((err) => {
               parser.close();
               done(err);
             });
-          })
-          .catch((err) => {
-            parser.close();
-            done(err);
-          });
-      }
+        }
+      });
     });
 
     it('should stream solid Deflate archive with multiple files', (done) => {
@@ -427,72 +453,71 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
-
-      const entries = parser.getEntries();
-      const fileEntries = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i].type === 'file') {
-          fileEntries.push(entries[i]);
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
         }
-      }
 
-      // Should have multiple files in the archive
-      assert.ok(fileEntries.length >= 2, 'Should have at least 2 file entries');
+        const entries = parser.getEntries();
+        const fileEntries = [];
+        for (let i = 0; i < entries.length; i++) {
+          if (entries[i].type === 'file') {
+            fileEntries.push(entries[i]);
+          }
+        }
 
-      // Check that all files are in same folder (solid)
-      const folderIndex = fileEntries[0]._folderIndex;
-      for (let i = 1; i < fileEntries.length; i++) {
-        assert.strictEqual(fileEntries[i]._folderIndex, folderIndex, 'All files should be in same folder (solid)');
-      }
+        assert.ok(fileEntries.length >= 2, 'Should have at least 2 file entries');
 
-      // Verify folder is streamable
-      assert.ok(parser.canStreamFolder(folderIndex), 'Solid Deflate folder should be streamable');
+        const folderIndex = fileEntries[0]._folderIndex;
+        for (let i = 1; i < fileEntries.length; i++) {
+          assert.strictEqual(fileEntries[i]._folderIndex, folderIndex, 'All files should be in same folder (solid)');
+        }
 
-      // Stream each file in order
-      const contents: { [key: string]: string } = {};
-      let pending = fileEntries.length;
+        assert.ok(parser.canStreamFolder(folderIndex), 'Solid Deflate folder should be streamable');
 
-      // Sort by stream index for correct ordering
-      fileEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        const contents: { [key: string]: string } = {};
+        let pending = fileEntries.length;
 
-      for (let i = 0; i < fileEntries.length; i++) {
-        const entry = fileEntries[i];
-        parser
-          .getEntryStreamStreaming(entry)
-          .then((stream) => {
-            const chunks: Buffer[] = [];
-            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-            stream.on('end', () => {
-              contents[entry.path] = Buffer.concat(chunks).toString('utf8');
-              pending--;
-              if (pending === 0) {
-                // All files streamed - verify contents
-                const paths = [];
-                for (const p in contents) {
-                  paths.push(p);
+        fileEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+
+        for (let i = 0; i < fileEntries.length; i++) {
+          const entry = fileEntries[i];
+          parser
+            .getEntryStreamStreaming(entry)
+            .then((stream) => {
+              const chunks: Buffer[] = [];
+              stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+              stream.on('end', () => {
+                contents[entry.name] = Buffer.concat(chunks).toString('utf8');
+                pending--;
+                if (pending === 0) {
+                  const paths = [];
+                  for (const p in contents) {
+                    paths.push(p);
+                  }
+                  assert.ok(paths.length >= 2, 'Should have streamed at least 2 files');
+
+                  for (let j = 0; j < paths.length; j++) {
+                    assert.ok(contents[paths[j]].length > 0, `File ${paths[j]} should have content`);
+                  }
+
+                  parser.close();
+                  done();
                 }
-                assert.ok(paths.length >= 2, 'Should have streamed at least 2 files');
-
-                // Verify we got content for each file
-                for (let j = 0; j < paths.length; j++) {
-                  assert.ok(contents[paths[j]].length > 0, `File ${paths[j]} should have content`);
-                }
-
+              });
+              stream.on('error', (err) => {
                 parser.close();
-                done();
-              }
-            });
-            stream.on('error', (err) => {
+                done(err);
+              });
+            })
+            .catch((err) => {
               parser.close();
               done(err);
             });
-          })
-          .catch((err) => {
-            parser.close();
-            done(err);
-          });
-      }
+        }
+      });
     });
 
     it('should verify file contents match expected in solid archive', (done) => {
@@ -501,57 +526,61 @@ describe('streaming', () => {
       const stats = fs.statSync(archivePath);
       const source = new FileSource(fd, stats.size);
       const parser = new SevenZipParser(source);
-      parser.parse();
-
-      const entries = parser.getEntries();
-      const fileEntries = [];
-      for (let i = 0; i < entries.length; i++) {
-        if (entries[i].type === 'file') {
-          fileEntries.push(entries[i]);
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          done(parseErr);
+          return;
         }
-      }
 
-      // Sort by stream index for correct ordering
-      fileEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        const entries = parser.getEntries();
+        const fileEntries = [];
+        for (let i = 0; i < entries.length; i++) {
+          if (entries[i].type === 'file') {
+            fileEntries.push(entries[i]);
+          }
+        }
 
-      const expectedContents: { [key: string]: string } = {
-        '.tmp/solid-test/file1.txt': 'File 1 content - this is the first file\n',
-        '.tmp/solid-test/file2.txt': 'File 2 content - this is the second file with more text\n',
-        '.tmp/solid-test/file3.txt': 'File 3 content - third file\n',
-      };
+        fileEntries.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
 
-      const actualContents: { [key: string]: string } = {};
-      let pending = fileEntries.length;
+        const expectedContents: { [key: string]: string } = {
+          '.tmp/solid-test/file1.txt': 'File 1 content - this is the first file\n',
+          '.tmp/solid-test/file2.txt': 'File 2 content - this is the second file with more text\n',
+          '.tmp/solid-test/file3.txt': 'File 3 content - third file\n',
+        };
 
-      for (let i = 0; i < fileEntries.length; i++) {
-        const entry = fileEntries[i];
-        parser
-          .getEntryStreamStreaming(entry)
-          .then((stream) => {
-            const chunks: Buffer[] = [];
-            stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-            stream.on('end', () => {
-              actualContents[entry.path] = Buffer.concat(chunks).toString('utf8');
-              pending--;
-              if (pending === 0) {
-                // Verify each file's content
-                for (const filePath in expectedContents) {
-                  assert.strictEqual(actualContents[filePath], expectedContents[filePath], `Content mismatch for ${filePath}`);
+        const actualContents: { [key: string]: string } = {};
+        let pending = fileEntries.length;
+
+        for (let i = 0; i < fileEntries.length; i++) {
+          const entry = fileEntries[i];
+          parser
+            .getEntryStreamStreaming(entry)
+            .then((stream) => {
+              const chunks: Buffer[] = [];
+              stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+              stream.on('end', () => {
+                actualContents[entry.path] = Buffer.concat(chunks).toString('utf8');
+                pending--;
+                if (pending === 0) {
+                  for (const filePath in expectedContents) {
+                    assert.strictEqual(actualContents[filePath], expectedContents[filePath], `Content mismatch for ${filePath}`);
+                  }
+                  parser.close();
+                  done();
                 }
+              });
+              stream.on('error', (err) => {
                 parser.close();
-                done();
-              }
-            });
-            stream.on('error', (err) => {
+                done(err);
+              });
+            })
+            .catch((err) => {
               parser.close();
               done(err);
             });
-          })
-          .catch((err) => {
-            parser.close();
-            done(err);
-          });
-      }
+        }
+      });
     });
   });
 

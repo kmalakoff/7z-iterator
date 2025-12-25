@@ -1,10 +1,12 @@
 // Codec registry for 7z decompression
 // Each codec provides a decode function and optionally a streaming decoder
 
+import type { BufferLike } from 'extract-base-iterator';
 import type { Transform } from 'stream';
 import {
   createLzma2Decoder as _createLzma2Decoder,
   createLzmaDecoder as _createLzmaDecoder,
+  type DecodeCallback as CodecDecodeCallback,
   createBcjArm64Decoder,
   createBcjArmDecoder,
   createBcjArmtDecoder,
@@ -34,20 +36,35 @@ import { createDeflateDecoder, decodeDeflate } from './Deflate.ts';
 // Re-export password functions for API access
 export { getPassword, setPassword };
 
+const schedule = typeof setImmediate === 'function' ? setImmediate : (fn: () => void) => process.nextTick(fn);
+
+function wrapSyncDecode(fn: (input: Buffer, properties?: Buffer, unpackSize?: number) => Buffer): Codec['decode'] {
+  return (input, properties, unpackSize, callback) => {
+    schedule(() => {
+      try {
+        // Convert BufferList to Buffer if needed
+        const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
+        callback(null, fn(buf, properties, unpackSize));
+      } catch (err) {
+        callback(err as Error);
+      }
+    });
+  };
+}
+
 export interface Codec {
-  decode: (input: Buffer, properties?: Buffer, unpackSize?: number) => Buffer;
+  decode: (input: BufferLike, properties: Buffer | undefined, unpackSize: number | undefined, callback: CodecDecodeCallback<Buffer>) => void;
   createDecoder: (properties?: Buffer, unpackSize?: number) => Transform;
 }
 
-// Simple wrappers with validation that use xz-compat's optimized decode7zLjma/decode7zLzma2
-function decodeLzma(input: Buffer, properties?: Buffer, unpackSize?: number): Buffer {
-  if (!properties || properties.length < 5) {
+// Simple wrappers with validation that use xz-compat's optimized decode7zLzma/decode7zLzma2
+function decodeLzma(input: BufferLike, properties: Buffer, unpackSize: number, callback: CodecDecodeCallback<Buffer>): void {
+  if (properties.length < 5) {
     throw new Error('LZMA requires 5-byte properties');
   }
-  if (typeof unpackSize !== 'number' || unpackSize < 0) {
-    throw new Error('LZMA requires known unpack size');
-  }
-  return decode7zLzma(input, properties, unpackSize);
+  // Convert BufferList to Buffer if needed
+  const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
+  decode7zLzma(buf, properties, unpackSize, callback);
 }
 
 function createLzmaDecoder(properties?: Buffer, unpackSize?: number): Transform {
@@ -60,11 +77,13 @@ function createLzmaDecoder(properties?: Buffer, unpackSize?: number): Transform 
   return _createLzmaDecoder(properties, unpackSize) as Transform;
 }
 
-function decodeLzma2(input: Buffer, properties?: Buffer, unpackSize?: number): Buffer {
-  if (!properties || properties.length < 1) {
+function decodeLzma2(input: BufferLike, properties: Buffer, unpackSize: number | undefined, callback: CodecDecodeCallback<Buffer>): void {
+  if (properties.length < 1) {
     throw new Error('LZMA2 requires properties byte');
   }
-  return decode7zLzma2(input, properties, unpackSize);
+  // Convert BufferList to Buffer if needed
+  const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
+  decode7zLzma2(buf, properties, unpackSize, callback);
 }
 
 function createLzma2Decoder(properties?: Buffer, _unpackSize?: number): Transform {
@@ -163,7 +182,7 @@ export { decodeBcj2Multi };
 
 // Copy codec (no compression)
 registerCodec(CodecId.COPY, {
-  decode: decodeCopy,
+  decode: wrapSyncDecode(decodeCopy),
   createDecoder: createCopyDecoder,
 });
 
@@ -181,67 +200,67 @@ registerCodec(CodecId.LZMA2, {
 
 // BCJ (x86) filter
 registerCodec(CodecId.BCJ_X86, {
-  decode: decodeBcj,
+  decode: wrapSyncDecode(decodeBcj),
   createDecoder: createBcjDecoder,
 });
 
 // BCJ (ARM) filter
 registerCodec(CodecId.BCJ_ARM, {
-  decode: decodeBcjArm,
+  decode: wrapSyncDecode(decodeBcjArm),
   createDecoder: createBcjArmDecoder,
 });
 
 // BCJ (ARM Thumb) filter
 registerCodec(CodecId.BCJ_ARMT, {
-  decode: decodeBcjArmt,
+  decode: wrapSyncDecode(decodeBcjArmt),
   createDecoder: createBcjArmtDecoder,
 });
 
 // BCJ (ARM64) filter
 registerCodec(CodecId.BCJ_ARM64, {
-  decode: decodeBcjArm64,
+  decode: wrapSyncDecode(decodeBcjArm64),
   createDecoder: createBcjArm64Decoder,
 });
 
 // BCJ (PowerPC) filter
 registerCodec(CodecId.BCJ_PPC, {
-  decode: decodeBcjPpc,
+  decode: wrapSyncDecode(decodeBcjPpc),
   createDecoder: createBcjPpcDecoder,
 });
 
 // BCJ (IA64) filter
 registerCodec(CodecId.BCJ_IA64, {
-  decode: decodeBcjIa64,
+  decode: wrapSyncDecode(decodeBcjIa64),
   createDecoder: createBcjIa64Decoder,
 });
 
 // BCJ (SPARC) filter
 registerCodec(CodecId.BCJ_SPARC, {
-  decode: decodeBcjSparc,
+  decode: wrapSyncDecode(decodeBcjSparc),
   createDecoder: createBcjSparcDecoder,
 });
 
 // Delta filter
 registerCodec(CodecId.DELTA, {
-  decode: decodeDelta,
+  decode: wrapSyncDecode(decodeDelta),
   createDecoder: createDeltaDecoder,
 });
 
 // Deflate codec
 registerCodec(CodecId.DEFLATE, {
-  decode: decodeDeflate,
+  decode: wrapSyncDecode(decodeDeflate),
   createDecoder: createDeflateDecoder,
 });
 
 // BZip2 codec
 registerCodec(CodecId.BZIP2, {
-  decode: decodeBzip2,
+  decode: wrapSyncDecode(decodeBzip2),
   createDecoder: createBzip2Decoder,
 });
 
 // AES-256-CBC codec (encryption)
 registerCodec(CodecId.AES, {
-  decode: decodeAes,
+  decode: wrapSyncDecode(decodeAes),
   createDecoder: createAesDecoder,
 });
 
