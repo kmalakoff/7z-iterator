@@ -1,6 +1,6 @@
 import BaseIterator, { Lock } from 'extract-base-iterator';
-import fs from 'fs';
 import { rmSync } from 'fs-remove-compat';
+import fs from 'graceful-fs';
 import path from 'path';
 import Queue from 'queue-cb';
 import shortHash from 'short-hash';
@@ -129,14 +129,19 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
       if (this.done || cancelled) return;
       if (!archiveSource) return cb(new Error('No archive source'));
 
-      try {
-        const parser = new SevenZipParser(archiveSource);
-        parser.parse();
-        this._iterator = new EntryIterator(parser);
-        cb();
-      } catch (parseErr) {
-        cb(parseErr as Error);
-      }
+      const parser = new SevenZipParser(archiveSource);
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          cb(parseErr);
+          return;
+        }
+        try {
+          this._iterator = new EntryIterator(parser);
+          cb();
+        } catch (err) {
+          cb(err as Error);
+        }
+      });
     });
 
     // start processing
