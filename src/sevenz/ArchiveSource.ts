@@ -5,7 +5,7 @@
  * a file descriptor or an in-memory buffer.
  */
 
-import { allocBuffer, Readable } from 'extract-base-iterator';
+import { allocBuffer, bufferConcat, Readable } from 'extract-base-iterator';
 import fs from 'fs';
 import type Stream from 'stream';
 
@@ -123,7 +123,7 @@ export class FileSource implements ArchiveSource {
       }
     }
 
-    return Buffer.concat(chunks);
+    return bufferConcat(chunks);
   }
 
   private readChunk(position: number, length: number): Buffer {
