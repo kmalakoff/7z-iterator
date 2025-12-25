@@ -18,11 +18,12 @@
  * - Supports LZMA, LZMA2, COPY, BCJ2, and other codecs
  */
 
+import once from 'call-once-fn';
 import { crc32, PassThrough } from 'extract-base-iterator';
 import type Stream from 'stream';
 import { defer } from '../lib/defer.ts';
 import type { ArchiveSource } from './ArchiveSource.ts';
-import { decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
+import { type Codec, decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
 import { FolderStreamSplitter } from './FolderStreamSplitter.ts';
 
 type Readable = Stream.Readable;
@@ -54,6 +55,10 @@ export interface SevenZipEntry {
   _canStream: boolean; // Whether this entry's folder supports streaming decompression
 }
 
+/** Callback for operations that don't return data */
+export type VoidCallback = (error: Error | null) => void;
+type BufferCallback = (error: Error | null, data?: Buffer) => void;
+
 /**
  * SevenZipParser - parses 7z archives and provides entry iteration
  */
@@ -72,128 +77,167 @@ export class SevenZipParser {
   private extractedPerFolder: { [key: number]: number } = {};
   // Splitter cache for multi-file folder streaming (Phase 2)
   private folderSplitters: { [key: number]: FolderStreamSplitter } = {};
+  private pendingFolders: { [key: number]: BufferCallback[] } = {};
 
   constructor(source: ArchiveSource) {
     this.source = source;
+  }
+
+  private decodeWithCodec(codec: Codec, input: Buffer, properties: Buffer | undefined, unpackSize: number | undefined, callback: BufferCallback): void {
+    const done = once(callback);
+    try {
+      codec.decode(input, properties, unpackSize, (err, result) => {
+        if (err) return done(err);
+        if (!result) return done(createCodedError('Decoder returned no data', ErrorCode.DECOMPRESSION_FAILED));
+        done(null, result);
+      });
+    } catch (err) {
+      done(err as Error);
+    }
   }
 
   /**
    * Parse the archive structure
    * Must be called before iterating entries
    */
-  parse(): void {
-    if (this.parsed) return;
-
-    // Read signature header
-    const sigBuf = this.source.read(0, SIGNATURE_HEADER_SIZE);
-    if (sigBuf.length < SIGNATURE_HEADER_SIZE) {
-      throw createCodedError('Archive too small', ErrorCode.TRUNCATED_ARCHIVE);
+  parse(callback?: VoidCallback): Promise<void> | void {
+    if (this.parsed) {
+      if (typeof callback === 'function') {
+        callback(null);
+        return;
+      }
+      if (typeof Promise === 'undefined') {
+        return;
+      }
+      return Promise.resolve();
     }
 
-    this.signature = parseSignatureHeader(sigBuf);
+    const executor = (done: VoidCallback): void => {
+      this.parseInternal(done);
+    };
 
-    // Read encoded header
-    const headerOffset = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
-    const headerBuf = this.source.read(headerOffset, this.signature.nextHeaderSize);
-
-    if (headerBuf.length < this.signature.nextHeaderSize) {
-      throw createCodedError('Truncated header', ErrorCode.TRUNCATED_ARCHIVE);
+    if (typeof callback === 'function') {
+      executor(callback);
+      return;
     }
 
-    // Parse encoded header (may need decompression)
+    if (typeof Promise === 'undefined') {
+      throw new Error('Promises are not available in this runtime. Please provide a callback to parse().');
+    }
+
+    return new Promise<void>((resolve, reject) => {
+      executor((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve();
+      });
+    });
+  }
+
+  private parseInternal(callback: VoidCallback): void {
+    if (this.parsed) {
+      callback(null);
+      return;
+    }
+
+    let signature: SignatureHeader;
+    let headerBuf: Buffer;
+
     try {
-      const headerResult = parseEncodedHeader(headerBuf, this.signature.nextHeaderCRC);
+      const sigBuf = this.source.read(0, SIGNATURE_HEADER_SIZE);
+      if (sigBuf.length < SIGNATURE_HEADER_SIZE) {
+        callback(createCodedError('Archive too small', ErrorCode.TRUNCATED_ARCHIVE));
+        return;
+      }
+      signature = parseSignatureHeader(sigBuf);
+      this.signature = signature;
+
+      const headerOffset = SIGNATURE_HEADER_SIZE + signature.nextHeaderOffset;
+      headerBuf = this.source.read(headerOffset, signature.nextHeaderSize);
+      if (headerBuf.length < signature.nextHeaderSize) {
+        callback(createCodedError('Truncated header', ErrorCode.TRUNCATED_ARCHIVE));
+        return;
+      }
+    } catch (err) {
+      callback(err as Error);
+      return;
+    }
+
+    const finalize = (): void => {
+      try {
+        this.buildEntries();
+        this.parsed = true;
+        callback(null);
+      } catch (err) {
+        callback(err as Error);
+      }
+    };
+
+    try {
+      const headerResult = parseEncodedHeader(headerBuf, this.signature?.nextHeaderCRC ?? 0);
       this.streamsInfo = headerResult.streamsInfo || null;
       this.filesInfo = headerResult.filesInfo;
-    } catch (err: unknown) {
+      finalize();
+    } catch (err) {
       const codedErr = err as CodedError;
       if (codedErr && codedErr.code === ErrorCode.COMPRESSED_HEADER) {
-        // Header is compressed - need to decompress first
-        this.handleCompressedHeader(headerBuf);
+        this.handleCompressedHeader(headerBuf, (headerErr) => {
+          if (headerErr) {
+            callback(headerErr);
+            return;
+          }
+          finalize();
+        });
       } else {
-        throw err;
+        callback(err as Error);
       }
     }
-
-    // Build entries list
-    this.buildEntries();
-    this.parsed = true;
   }
 
   /**
    * Handle compressed header (kEncodedHeader)
    */
-  private handleCompressedHeader(headerBuf: Buffer): void {
+  private handleCompressedHeader(headerBuf: Buffer, callback: VoidCallback): void {
     // Parse the encoded header info to get decompression parameters
     let offset = 1; // Skip kEncodedHeader byte
 
-    // Should have StreamsInfo for the header itself
     const propertyId = headerBuf[offset++];
     if (propertyId !== PropertyId.kMainStreamsInfo && propertyId !== PropertyId.kPackInfo) {
-      throw createCodedError('Expected StreamsInfo in encoded header', ErrorCode.CORRUPT_HEADER);
+      callback(createCodedError('Expected StreamsInfo in encoded header', ErrorCode.CORRUPT_HEADER));
+      return;
     }
 
-    // For now, we parse the streams info from the encoded header block
-    // This tells us how to decompress the actual header
-
-    // Read pack info from the encoded header structure
-    const packInfoResult = this.parseEncodedHeaderStreams(headerBuf, 1);
-
-    // Calculate compressed header position
-    // For simple archives: header is at SIGNATURE_HEADER_SIZE + packPos
-    // For BCJ2/complex archives: header may be at the END of pack data area
-    // The pack data area ends at nextHeaderOffset (where encoded header starts)
-    const compressedStart = SIGNATURE_HEADER_SIZE + packInfoResult.packPos;
-    const compressedData = this.source.read(compressedStart, packInfoResult.packSize);
-
-    // Decompress using the specified codec
-    const codec = getCodec(packInfoResult.codecId);
-    let decompressedHeader: Buffer | null = null;
-
-    // Try decompressing from the calculated position first
+    let packInfoResult: ReturnType<SevenZipParser['parseEncodedHeaderStreams']>;
     try {
-      decompressedHeader = codec.decode(compressedData, packInfoResult.properties, packInfoResult.unpackSize);
-      // Verify CRC if present
-      if (packInfoResult.unpackCRC !== undefined) {
-        const actualCRC = crc32(decompressedHeader);
-        if (actualCRC !== packInfoResult.unpackCRC) {
-          decompressedHeader = null; // CRC mismatch, need to search
-        }
-      }
-    } catch {
-      decompressedHeader = null; // Decompression failed, need to search
+      packInfoResult = this.parseEncodedHeaderStreams(headerBuf, 1);
+    } catch (err) {
+      callback(err as Error);
+      return;
     }
 
-    // If initial decompression failed, search for the correct position as a fallback
-    // This handles edge cases where packPos doesn't point directly to header pack data
-    if (decompressedHeader === null && this.signature) {
+    const codec = getCodec(packInfoResult.codecId);
+    const candidates: Buffer[] = [];
+
+    const compressedStart = SIGNATURE_HEADER_SIZE + packInfoResult.packPos;
+    candidates.push(this.source.read(compressedStart, packInfoResult.packSize));
+
+    if (this.signature) {
       const packAreaEnd = SIGNATURE_HEADER_SIZE + this.signature.nextHeaderOffset;
       const searchStart = packAreaEnd - packInfoResult.packSize;
       const searchEnd = Math.max(SIGNATURE_HEADER_SIZE, compressedStart - 100000);
-
-      // Scan for LZMA data starting with 0x00 (range coder init)
-      // Try each candidate and validate with CRC
       const scanChunkSize = 4096;
-      searchLoop: for (let chunkStart = searchStart; chunkStart >= searchEnd; chunkStart -= scanChunkSize) {
+      for (let chunkStart = searchStart; chunkStart >= searchEnd; chunkStart -= scanChunkSize) {
         const chunk = this.source.read(chunkStart, scanChunkSize + packInfoResult.packSize);
-        for (let i = 0; i < Math.min(chunk.length, scanChunkSize); i++) {
+        const limit = Math.min(chunk.length, scanChunkSize);
+        for (let i = 0; i < limit; i++) {
           if (chunk[i] === 0x00) {
-            const candidateData = chunk.subarray(i, i + packInfoResult.packSize);
-            if (candidateData.length === packInfoResult.packSize) {
-              try {
-                const candidateDecompressed = codec.decode(candidateData, packInfoResult.properties, packInfoResult.unpackSize);
-                if (packInfoResult.unpackCRC !== undefined) {
-                  const candCRC = crc32(candidateDecompressed);
-                  if (candCRC === packInfoResult.unpackCRC) {
-                    decompressedHeader = candidateDecompressed;
-                    break searchLoop;
-                  }
-                } else {
-                  decompressedHeader = candidateDecompressed;
-                  break searchLoop;
-                }
-              } catch {
-                // Decompression failed, continue searching
+            const end = i + packInfoResult.packSize;
+            if (end <= chunk.length) {
+              const candidateData = chunk.slice(i, end);
+              if (candidateData.length === packInfoResult.packSize) {
+                candidates.push(candidateData);
               }
             }
           }
@@ -201,22 +245,47 @@ export class SevenZipParser {
       }
     }
 
-    if (decompressedHeader === null) {
-      throw createCodedError('Failed to decompress header - could not find valid LZMA data', ErrorCode.CORRUPT_HEADER);
-    }
+    const tryCandidate = (index: number): void => {
+      if (index >= candidates.length) {
+        callback(createCodedError('Failed to decompress header - could not find valid LZMA data', ErrorCode.CORRUPT_HEADER));
+        return;
+      }
 
-    // Now parse the decompressed header
-    // It should start with kHeader
+      this.decodeWithCodec(codec, candidates[index], packInfoResult.properties, packInfoResult.unpackSize, (err, decompressed) => {
+        if (err || !decompressed) {
+          tryCandidate(index + 1);
+          return;
+        }
+        if (packInfoResult.unpackCRC !== undefined) {
+          const actualCRC = crc32(decompressed);
+          if (actualCRC !== packInfoResult.unpackCRC) {
+            tryCandidate(index + 1);
+            return;
+          }
+        }
+        this.parseDecompressedHeader(decompressed, callback);
+      });
+    };
+
+    tryCandidate(0);
+  }
+
+  private parseDecompressedHeader(decompressedHeader: Buffer, callback: VoidCallback): void {
     let decompOffset = 0;
     const headerId = decompressedHeader[decompOffset++];
     if (headerId !== PropertyId.kHeader) {
-      throw createCodedError('Expected kHeader in decompressed header', ErrorCode.CORRUPT_HEADER);
+      callback(createCodedError('Expected kHeader in decompressed header', ErrorCode.CORRUPT_HEADER));
+      return;
     }
 
-    // Parse the decompressed header using shared function from headers.ts
-    const result = parseHeaderContent(decompressedHeader, decompOffset);
-    this.streamsInfo = result.streamsInfo || null;
-    this.filesInfo = result.filesInfo;
+    try {
+      const result = parseHeaderContent(decompressedHeader, decompOffset);
+      this.streamsInfo = result.streamsInfo || null;
+      this.filesInfo = result.filesInfo;
+      callback(null);
+    } catch (err) {
+      callback(err as Error);
+    }
   }
 
   /**
@@ -451,7 +520,7 @@ export class SevenZipParser {
    */
   getEntries(): SevenZipEntry[] {
     if (!this.parsed) {
-      this.parse();
+      throw new Error('SevenZipParser has not been parsed yet. Call parse(callback) before accessing entries.');
     }
     return this.entries;
   }
@@ -594,46 +663,50 @@ export class SevenZipParser {
         defer(() => {
           if (destroyed) return;
 
-          try {
-            const data = this.getDecompressedFolder(folderIdx);
-
-            let fileStart = 0;
-            for (let m = 0; m < entry._streamIndexInFolder; m++) {
-              const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
-              fileStart += streamsInfo.unpackSizes[prevStreamGlobalIndex];
-            }
-
-            const fileSize = entry.size;
-
-            if (fileStart + fileSize > data.length) {
-              stream.destroy(createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED));
+          this.getDecompressedFolder(folderIdx, (err, data) => {
+            if (destroyed) return;
+            if (err || !data) {
+              stream.destroy(err || createCodedError('Unable to decompress folder', ErrorCode.DECOMPRESSION_FAILED));
               return;
             }
 
-            const fileData = data.slice(fileStart, fileStart + fileSize);
+            try {
+              let fileStart = 0;
+              for (let m = 0; m < entry._streamIndexInFolder; m++) {
+                const prevStreamGlobalIndex = entry._streamIndex - entry._streamIndexInFolder + m;
+                fileStart += streamsInfo.unpackSizes[prevStreamGlobalIndex];
+              }
 
-            if (entry._crc !== undefined) {
-              const actualCRC = crc32(fileData);
-              if (actualCRC !== entry._crc) {
-                stream.destroy(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH));
+              const fileSize = entry.size;
+
+              if (fileStart + fileSize > data.length) {
+                stream.destroy(createCodedError(`File data out of bounds: offset ${fileStart} + size ${fileSize} > decompressed length ${data.length}`, ErrorCode.DECOMPRESSION_FAILED));
                 return;
               }
-            }
 
-            this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
-            if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
-              delete this.decompressedCache[folderIdx];
-            }
+              const fileData = data.slice(fileStart, fileStart + fileSize);
 
-            if (!destroyed) {
-              stream.push(fileData);
-              stream.push(null);
+              if (entry._crc !== undefined) {
+                const actualCRC = crc32(fileData);
+                if (actualCRC !== entry._crc) {
+                  stream.destroy(createCodedError(`CRC mismatch for ${entry.path}: expected ${entry._crc.toString(16)}, got ${actualCRC.toString(16)}`, ErrorCode.CRC_MISMATCH));
+                  return;
+                }
+              }
+
+              this.extractedPerFolder[folderIdx] = (this.extractedPerFolder[folderIdx] || 0) + 1;
+              if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
+                delete this.decompressedCache[folderIdx];
+              }
+
+              if (!destroyed) {
+                stream.push(fileData);
+                stream.push(null);
+              }
+            } catch (decodeErr) {
+              stream.destroy(decodeErr as Error);
             }
-          } catch (err) {
-            if (!destroyed) {
-              stream.destroy(err as Error);
-            }
-          }
+          });
         });
       }
       return originalRead(size);
@@ -671,140 +744,174 @@ export class SevenZipParser {
    * Get decompressed data for a folder, with smart caching for solid archives
    * Only caches when multiple files share a block, releases when last file extracted
    */
-  private getDecompressedFolder(folderIndex: number): Buffer {
-    // Check cache first
+  private getDecompressedFolder(folderIndex: number, callback: BufferCallback): void {
     if (this.decompressedCache[folderIndex]) {
-      return this.decompressedCache[folderIndex];
+      callback(null, this.decompressedCache[folderIndex]);
+      return;
+    }
+
+    if (this.pendingFolders[folderIndex]) {
+      this.pendingFolders[folderIndex].push(callback);
+      return;
     }
 
     if (!this.streamsInfo) {
-      throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
+      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
+      return;
+    }
+
+    this.pendingFolders[folderIndex] = [callback];
+
+    this.decodeFolderData(folderIndex, (err, data) => {
+      const waiters = this.pendingFolders[folderIndex] || [];
+      delete this.pendingFolders[folderIndex];
+
+      if (err || !data) {
+        for (let i = 0; i < waiters.length; i++) {
+          waiters[i](err || createCodedError('Decoder returned no data', ErrorCode.DECOMPRESSION_FAILED));
+        }
+        return;
+      }
+
+      if (this.shouldCacheFolder(folderIndex)) {
+        this.decompressedCache[folderIndex] = data;
+      }
+
+      for (let i = 0; i < waiters.length; i++) {
+        waiters[i](null, data);
+      }
+    });
+  }
+
+  private shouldCacheFolder(folderIndex: number): boolean {
+    const filesInFolder = this.filesPerFolder[folderIndex] || 1;
+    const extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
+    return filesInFolder - extractedFromFolder > 1;
+  }
+
+  private decodeFolderData(folderIndex: number, callback: BufferCallback): void {
+    if (!this.streamsInfo) {
+      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
+      return;
     }
 
     const folder = this.streamsInfo.folders[folderIndex];
-
-    // Check how many files remain in this folder
-    const filesInFolder = this.filesPerFolder[folderIndex] || 1;
-    const extractedFromFolder = this.extractedPerFolder[folderIndex] || 0;
-    const remainingFiles = filesInFolder - extractedFromFolder;
-    // Only cache if more than 1 file remains (including the current one being extracted)
-    const shouldCache = remainingFiles > 1;
-
-    // Check if this folder uses BCJ2 (requires special multi-stream handling)
-    if (this.folderHasBcj2(folder)) {
-      const data = this.decompressBcj2Folder(folderIndex);
-      if (shouldCache) {
-        this.decompressedCache[folderIndex] = data;
-      }
-      return data;
+    if (!folder) {
+      callback(createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER));
+      return;
     }
 
-    // Calculate packed data position
-    // Use Math.max to prevent 32-bit signed overflow
+    if (this.folderHasBcj2(folder)) {
+      this.decompressBcj2Folder(folderIndex, callback);
+      return;
+    }
+
+    const packDataResult = this.readPackedData(folderIndex);
+    if (packDataResult instanceof Error) {
+      callback(packDataResult);
+      return;
+    }
+
+    this.decodeFolderCoders(folder, packDataResult, 0, callback);
+  }
+
+  private readPackedData(folderIndex: number): Buffer | Error {
+    if (!this.streamsInfo) {
+      return createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
+    }
+
+    const folder = this.streamsInfo.folders[folderIndex];
+    if (!folder) {
+      return createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER);
+    }
+
     const signedHeaderSize = SIGNATURE_HEADER_SIZE;
     const signedPackPos = this.streamsInfo.packPos;
     let packPos = Math.max(signedHeaderSize, 0) + Math.max(signedPackPos, 0);
 
-    // Find which pack stream this folder uses
     let packStreamIndex = 0;
     for (let j = 0; j < folderIndex; j++) {
       packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
     }
 
-    // Calculate position of this pack stream - PREVENT OVERFLOW
     for (let k = 0; k < packStreamIndex; k++) {
       const size = this.streamsInfo.packSizes[k];
       if (packPos + size < packPos) {
-        throw createCodedError(`Pack position overflow at index ${k}`, ErrorCode.CORRUPT_ARCHIVE);
+        return createCodedError(`Pack position overflow at index ${k}`, ErrorCode.CORRUPT_ARCHIVE);
       }
       packPos += size;
     }
 
     const packSize = this.streamsInfo.packSizes[packStreamIndex];
-
-    // Validate pack size to prevent overflow
-    // Upper bound is Number.MAX_SAFE_INTEGER (2^53-1 = 9PB) - safe for all realistic archives
     if (packSize < 0 || packSize > Number.MAX_SAFE_INTEGER) {
-      throw createCodedError(`Invalid pack size: ${packSize}`, ErrorCode.CORRUPT_ARCHIVE);
+      return createCodedError(`Invalid pack size: ${packSize}`, ErrorCode.CORRUPT_ARCHIVE);
     }
 
     if (packPos < 0 || packPos > Number.MAX_SAFE_INTEGER) {
-      throw createCodedError(`Invalid pack position: ${packPos}`, ErrorCode.CORRUPT_ARCHIVE);
+      return createCodedError(`Invalid pack position: ${packPos}`, ErrorCode.CORRUPT_ARCHIVE);
     }
 
-    // Read packed data
-    const packedData = this.source.read(packPos, packSize);
+    return this.source.read(packPos, packSize);
+  }
 
-    // Decompress through codec chain
-    let data2 = packedData;
-    for (let l = 0; l < folder.coders.length; l++) {
-      const coderInfo = folder.coders[l];
-      const codec = getCodec(coderInfo.id);
-      // Get unpack size for this coder (needed by LZMA)
-      const unpackSize = folder.unpackSizes[l];
-      // Validate unpack size to prevent overflow
-      if (unpackSize < 0 || unpackSize > Number.MAX_SAFE_INTEGER) {
-        throw createCodedError(`Invalid unpack size: ${unpackSize}`, ErrorCode.CORRUPT_ARCHIVE);
+  private decodeFolderCoders(folder: { coders: { id: number[]; properties?: Buffer }[]; unpackSizes: number[] }, input: Buffer, index: number, callback: BufferCallback): void {
+    if (index >= folder.coders.length) {
+      callback(null, input);
+      return;
+    }
+
+    const coderInfo = folder.coders[index];
+    const codec = getCodec(coderInfo.id);
+    const unpackSize = folder.unpackSizes[index];
+    if (unpackSize < 0 || unpackSize > Number.MAX_SAFE_INTEGER) {
+      callback(createCodedError(`Invalid unpack size: ${unpackSize}`, ErrorCode.CORRUPT_ARCHIVE));
+      return;
+    }
+
+    this.decodeWithCodec(codec, input, coderInfo.properties, unpackSize, (err, output) => {
+      if (err || !output) {
+        callback(err || createCodedError('Decoder returned no data', ErrorCode.DECOMPRESSION_FAILED));
+        return;
       }
-      data2 = codec.decode(data2, coderInfo.properties, unpackSize);
-    }
-
-    // Cache only if more files remain in this folder
-    if (shouldCache) {
-      this.decompressedCache[folderIndex] = data2;
-    }
-
-    return data2;
+      this.decodeFolderCoders(folder, output, index + 1, callback);
+    });
   }
 
   /**
    * Decompress a BCJ2 folder with multi-stream handling
    * BCJ2 uses 4 input streams: main, call, jump, range coder
    */
-  private decompressBcj2Folder(folderIndex: number): Buffer {
+  private decompressBcj2Folder(folderIndex: number, callback: BufferCallback): void {
     if (!this.streamsInfo) {
-      throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
+      callback(createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER));
+      return;
     }
 
     const folder = this.streamsInfo.folders[folderIndex];
+    if (!folder) {
+      callback(createCodedError('Invalid folder index', ErrorCode.CORRUPT_HEADER));
+      return;
+    }
 
-    // Calculate starting pack position
     let packPos = SIGNATURE_HEADER_SIZE + this.streamsInfo.packPos;
-
-    // Find which pack stream index this folder starts at
     let packStreamIndex = 0;
     for (let j = 0; j < folderIndex; j++) {
       packStreamIndex += this.streamsInfo.folders[j].packedStreams.length;
     }
-
-    // Calculate position
     for (let k = 0; k < packStreamIndex; k++) {
       packPos += this.streamsInfo.packSizes[k];
     }
 
-    // Read all pack streams for this folder
     const numPackStreams = folder.packedStreams.length;
     const packStreams: Buffer[] = [];
     let currentPos = packPos;
-
     for (let p = 0; p < numPackStreams; p++) {
       const size = this.streamsInfo.packSizes[packStreamIndex + p];
       packStreams.push(this.source.read(currentPos, size));
       currentPos += size;
     }
 
-    // Build a map of coder outputs
-    // For BCJ2, typical structure is:
-    //   Coder 0: LZMA2 (main stream) - 1 in, 1 out
-    //   Coder 1: LZMA (call stream) - 1 in, 1 out
-    //   Coder 2: LZMA (jump stream) - 1 in, 1 out
-    //   Coder 3: BCJ2 - 4 in, 1 out
-    // Pack streams map to: coder inputs not bound to other coder outputs
-
-    // First, decompress each non-BCJ2 coder
     const coderOutputs: { [key: number]: Buffer } = {};
-
-    // Find the BCJ2 coder
     let bcj2CoderIndex = -1;
     for (let c = 0; c < folder.coders.length; c++) {
       if (isBcj2Codec(folder.coders[c].id)) {
@@ -812,69 +919,68 @@ export class SevenZipParser {
         break;
       }
     }
-
     if (bcj2CoderIndex === -1) {
-      throw createCodedError('BCJ2 coder not found in folder', ErrorCode.CORRUPT_HEADER);
+      callback(createCodedError('BCJ2 coder not found in folder', ErrorCode.CORRUPT_HEADER));
+      return;
     }
 
-    // Build input stream index -> pack stream mapping
-    // folder.packedStreams tells us which input indices are unbound and their order
     const inputToPackStream: { [key: number]: number } = {};
     for (let pi = 0; pi < folder.packedStreams.length; pi++) {
       inputToPackStream[folder.packedStreams[pi]] = pi;
     }
 
-    // Build output stream index -> coder mapping
-    const outputToCoder: { [key: number]: number } = {};
-    let totalOutputs = 0;
-    for (let co = 0; co < folder.coders.length; co++) {
-      const numOut = folder.coders[co].numOutStreams;
-      for (let outp = 0; outp < numOut; outp++) {
-        outputToCoder[totalOutputs + outp] = co;
-      }
-      totalOutputs += numOut;
-    }
-
-    // Decompress non-BCJ2 coders (LZMA, LZMA2)
-    // We need to process in dependency order
-    const processed: { [key: number]: boolean } = {};
-
     const processOrder = this.getCoderProcessOrder(folder, bcj2CoderIndex);
 
-    for (let po = 0; po < processOrder.length; po++) {
-      const coderIdx = processOrder[po];
-      if (coderIdx === bcj2CoderIndex) continue;
+    const processNext = (orderIndex: number): void => {
+      if (orderIndex >= processOrder.length) {
+        this.finishBcj2Decode(folder, bcj2CoderIndex, coderOutputs, inputToPackStream, packStreams, callback);
+        return;
+      }
+
+      const coderIdx = processOrder[orderIndex];
+      if (coderIdx === bcj2CoderIndex) {
+        processNext(orderIndex + 1);
+        return;
+      }
 
       const coder = folder.coders[coderIdx];
       const codec = getCodec(coder.id);
 
-      // Find input for this coder
       let coderInputStart = 0;
       for (let ci2 = 0; ci2 < coderIdx; ci2++) {
         coderInputStart += folder.coders[ci2].numInStreams;
       }
-
-      // Get input data (from pack stream)
       const inputIdx = coderInputStart;
       const packStreamIdx = inputToPackStream[inputIdx];
       const inputData = packStreams[packStreamIdx];
-
-      // Decompress
       const unpackSize = folder.unpackSizes[coderIdx];
-      const outputData = codec.decode(inputData, coder.properties, unpackSize);
 
-      // Store in coder outputs
-      let coderOutputStart = 0;
-      for (let co2 = 0; co2 < coderIdx; co2++) {
-        coderOutputStart += folder.coders[co2].numOutStreams;
-      }
-      coderOutputs[coderOutputStart] = outputData;
-      processed[coderIdx] = true;
-    }
+      this.decodeWithCodec(codec, inputData, coder.properties, unpackSize, (err, outputData) => {
+        if (err || !outputData) {
+          callback(err || createCodedError('Decoder returned no data', ErrorCode.DECOMPRESSION_FAILED));
+          return;
+        }
 
-    // Now process BCJ2
-    // BCJ2 has 4 inputs, need to map them correctly
-    // Standard order: main(LZMA2 output), call(LZMA output), jump(LZMA output), range(raw pack)
+        let coderOutputStart = 0;
+        for (let co2 = 0; co2 < coderIdx; co2++) {
+          coderOutputStart += folder.coders[co2].numOutStreams;
+        }
+        coderOutputs[coderOutputStart] = outputData;
+        processNext(orderIndex + 1);
+      });
+    };
+
+    processNext(0);
+  }
+
+  private finishBcj2Decode(
+    folder: { coders: { id: number[]; numInStreams: number; numOutStreams: number; properties?: Buffer }[]; bindPairs: { inIndex: number; outIndex: number }[]; unpackSizes: number[] },
+    bcj2CoderIndex: number,
+    coderOutputs: { [key: number]: Buffer },
+    inputToPackStream: { [key: number]: number },
+    packStreams: Buffer[],
+    callback: BufferCallback
+  ): void {
     let bcj2InputStart = 0;
     for (let ci3 = 0; ci3 < bcj2CoderIndex; ci3++) {
       bcj2InputStart += folder.coders[ci3].numInStreams;
@@ -883,8 +989,6 @@ export class SevenZipParser {
     const bcj2Inputs: Buffer[] = [];
     for (let bi = 0; bi < 4; bi++) {
       const globalIdx = bcj2InputStart + bi;
-
-      // Check if this input is bound to a coder output
       let boundOutput = -1;
       for (let bp2 = 0; bp2 < folder.bindPairs.length; bp2++) {
         if (folder.bindPairs[bp2].inIndex === globalIdx) {
@@ -894,32 +998,30 @@ export class SevenZipParser {
       }
 
       if (boundOutput >= 0) {
-        // Get from coder outputs
         bcj2Inputs.push(coderOutputs[boundOutput]);
       } else {
-        // Get from pack streams
         const psIdx = inputToPackStream[globalIdx];
         bcj2Inputs.push(packStreams[psIdx]);
       }
     }
 
-    // Get BCJ2 unpack size
     let bcj2OutputStart = 0;
     for (let co3 = 0; co3 < bcj2CoderIndex; co3++) {
       bcj2OutputStart += folder.coders[co3].numOutStreams;
     }
     const bcj2UnpackSize = folder.unpackSizes[bcj2OutputStart];
 
-    // Memory optimization: Clear intermediate buffers to help GC
-    // These are no longer needed after bcj2Inputs is built
-    for (const key in coderOutputs) {
-      delete coderOutputs[key];
+    try {
+      const result = decodeBcj2Multi(bcj2Inputs, undefined, bcj2UnpackSize);
+      callback(null, result);
+    } catch (err) {
+      callback(err as Error);
+    } finally {
+      for (const key in coderOutputs) {
+        delete coderOutputs[key];
+      }
+      packStreams.length = 0;
     }
-    // Clear packStreams array (allows GC to free compressed data)
-    packStreams.length = 0;
-
-    // Decode BCJ2
-    return decodeBcj2Multi(bcj2Inputs, undefined, bcj2UnpackSize);
   }
 
   /**
