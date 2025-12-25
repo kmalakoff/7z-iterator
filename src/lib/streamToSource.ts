@@ -1,7 +1,7 @@
 // Stream to source conversion: writes stream to temp file for random access
 import once from 'call-once-fn';
 import { bufferFrom } from 'extract-base-iterator';
-import fs from 'fs';
+import fs from 'graceful-fs';
 import mkdirp from 'mkdirp-classic';
 import oo from 'on-one';
 import path from 'path';
