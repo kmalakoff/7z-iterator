@@ -1123,7 +1123,7 @@ export class SevenZipParser {
     // LZMA2 - now uses streaming Transform (Phase 5)
     if (key === '21') return true;
 
-    // LZMA - still buffer-based (TODO: Phase 5 continuation)
+    // LZMA - still buffer-based (cannot stream - no chunk boundaries in LZMA1 format)
     // Other BCJ variants (ARM64, ARMT, IA64, PPC, SPARC) - still buffer-based
     // BCJ2 - multi-stream architecture, never streamable
     return false;
