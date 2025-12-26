@@ -19,7 +19,7 @@
  */
 
 import once from 'call-once-fn';
-import { crc32, PassThrough } from 'extract-base-iterator';
+import { type BufferLike, crc32, PassThrough } from 'extract-base-iterator';
 import type Stream from 'stream';
 import { defer } from '../lib/defer.ts';
 import type { ArchiveSource } from './ArchiveSource.ts';
@@ -83,7 +83,17 @@ export class SevenZipParser {
     this.source = source;
   }
 
-  private decodeWithCodec(codec: Codec, input: Buffer, properties: Buffer | undefined, unpackSize: number | undefined, callback: BufferCallback): void {
+  /**
+   * Convert BufferLike to Buffer (for small data like headers)
+   */
+  private toBuffer(buf: BufferLike): Buffer {
+    return Buffer.isBuffer(buf) ? buf : buf.toBuffer();
+  }
+
+  /**
+   * Decode using codec - accepts BufferLike for LZMA1 support
+   */
+  private decodeWithCodec(codec: Codec, input: BufferLike, properties: Buffer | undefined, unpackSize: number | undefined, callback: BufferCallback): void {
     const done = once(callback);
     try {
       codec.decode(input, properties, unpackSize, (err, result) => {
@@ -143,7 +153,7 @@ export class SevenZipParser {
     }
 
     let signature: SignatureHeader;
-    let headerBuf: Buffer;
+    let headerBuf: BufferLike;
 
     try {
       const sigBuf = this.source.read(0, SIGNATURE_HEADER_SIZE);
@@ -151,7 +161,7 @@ export class SevenZipParser {
         callback(createCodedError('Archive too small', ErrorCode.TRUNCATED_ARCHIVE));
         return;
       }
-      signature = parseSignatureHeader(sigBuf);
+      signature = parseSignatureHeader(this.toBuffer(sigBuf));
       this.signature = signature;
 
       const headerOffset = SIGNATURE_HEADER_SIZE + signature.nextHeaderOffset;
@@ -176,7 +186,7 @@ export class SevenZipParser {
     };
 
     try {
-      const headerResult = parseEncodedHeader(headerBuf, this.signature?.nextHeaderCRC ?? 0);
+      const headerResult = parseEncodedHeader(this.toBuffer(headerBuf), this.signature?.nextHeaderCRC ?? 0);
       this.streamsInfo = headerResult.streamsInfo || null;
       this.filesInfo = headerResult.filesInfo;
       finalize();
@@ -199,11 +209,13 @@ export class SevenZipParser {
   /**
    * Handle compressed header (kEncodedHeader)
    */
-  private handleCompressedHeader(headerBuf: Buffer, callback: VoidCallback): void {
+  private handleCompressedHeader(headerBuf: BufferLike, callback: VoidCallback): void {
     // Parse the encoded header info to get decompression parameters
+    // Convert to Buffer for header parsing (small data)
+    const headerBuffer = this.toBuffer(headerBuf);
     let offset = 1; // Skip kEncodedHeader byte
 
-    const propertyId = headerBuf[offset++];
+    const propertyId = headerBuffer[offset++];
     if (propertyId !== PropertyId.kMainStreamsInfo && propertyId !== PropertyId.kPackInfo) {
       callback(createCodedError('Expected StreamsInfo in encoded header', ErrorCode.CORRUPT_HEADER));
       return;
@@ -211,14 +223,14 @@ export class SevenZipParser {
 
     let packInfoResult: ReturnType<SevenZipParser['parseEncodedHeaderStreams']>;
     try {
-      packInfoResult = this.parseEncodedHeaderStreams(headerBuf, 1);
+      packInfoResult = this.parseEncodedHeaderStreams(headerBuffer, 1);
     } catch (err) {
       callback(err as Error);
       return;
     }
 
     const codec = getCodec(packInfoResult.codecId);
-    const candidates: Buffer[] = [];
+    const candidates: BufferLike[] = [];
 
     const compressedStart = SIGNATURE_HEADER_SIZE + packInfoResult.packPos;
     candidates.push(this.source.read(compressedStart, packInfoResult.packSize));
@@ -229,7 +241,9 @@ export class SevenZipParser {
       const searchEnd = Math.max(SIGNATURE_HEADER_SIZE, compressedStart - 100000);
       const scanChunkSize = 4096;
       for (let chunkStart = searchStart; chunkStart >= searchEnd; chunkStart -= scanChunkSize) {
-        const chunk = this.source.read(chunkStart, scanChunkSize + packInfoResult.packSize);
+        const chunkRaw = this.source.read(chunkStart, scanChunkSize + packInfoResult.packSize);
+        // Convert to Buffer for scanning (small data)
+        const chunk = this.toBuffer(chunkRaw);
         const limit = Math.min(chunk.length, scanChunkSize);
         for (let i = 0; i < limit; i++) {
           if (chunk[i] === 0x00) {
@@ -815,7 +829,7 @@ export class SevenZipParser {
     this.decodeFolderCoders(folder, packDataResult, 0, callback);
   }
 
-  private readPackedData(folderIndex: number): Buffer | Error {
+  private readPackedData(folderIndex: number): BufferLike | Error {
     if (!this.streamsInfo) {
       return createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
     }
@@ -854,9 +868,10 @@ export class SevenZipParser {
     return this.source.read(packPos, packSize);
   }
 
-  private decodeFolderCoders(folder: { coders: { id: number[]; properties?: Buffer }[]; unpackSizes: number[] }, input: Buffer, index: number, callback: BufferCallback): void {
+  private decodeFolderCoders(folder: { coders: { id: number[]; properties?: Buffer }[]; unpackSizes: number[] }, input: BufferLike, index: number, callback: BufferCallback): void {
     if (index >= folder.coders.length) {
-      callback(null, input);
+      // Convert BufferList to Buffer for final output
+      callback(null, this.toBuffer(input));
       return;
     }
 
@@ -903,7 +918,7 @@ export class SevenZipParser {
     }
 
     const numPackStreams = folder.packedStreams.length;
-    const packStreams: Buffer[] = [];
+    const packStreams: BufferLike[] = [];
     let currentPos = packPos;
     for (let p = 0; p < numPackStreams; p++) {
       const size = this.streamsInfo.packSizes[packStreamIndex + p];
@@ -978,7 +993,7 @@ export class SevenZipParser {
     bcj2CoderIndex: number,
     coderOutputs: { [key: number]: Buffer },
     inputToPackStream: { [key: number]: number },
-    packStreams: Buffer[],
+    packStreams: BufferLike[],
     callback: BufferCallback
   ): void {
     let bcj2InputStart = 0;
@@ -1001,7 +1016,8 @@ export class SevenZipParser {
         bcj2Inputs.push(coderOutputs[boundOutput]);
       } else {
         const psIdx = inputToPackStream[globalIdx];
-        bcj2Inputs.push(packStreams[psIdx]);
+        // Convert BufferList to Buffer for BCJ2 (small data, safe to concatenate)
+        bcj2Inputs.push(this.toBuffer(packStreams[psIdx]));
       }
     }
 
