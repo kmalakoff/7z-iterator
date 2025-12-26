@@ -5,7 +5,7 @@
  * a file descriptor or an in-memory buffer.
  */
 
-import { allocBuffer, bufferConcat, Readable } from 'extract-base-iterator';
+import { allocBuffer, type BufferLike, BufferList, canAllocateBufferSize, Readable } from 'extract-base-iterator';
 import fs from 'fs';
 import type Stream from 'stream';
 
@@ -22,7 +22,7 @@ function createReadableStream(readFn: (stream: Stream.Readable) => void): Stream
  * Archive source abstraction - allows reading from file descriptor or buffer
  */
 export interface ArchiveSource {
-  read(position: number, length: number): Buffer;
+  read(position: number, length: number): BufferLike;
   getSize(): number;
   close(): void;
   /**
@@ -44,7 +44,7 @@ export class BufferSource implements ArchiveSource {
     this.buffer = buffer;
   }
 
-  read(position: number, length: number): Buffer {
+  read(position: number, length: number): BufferLike {
     return this.buffer.slice(position, position + length);
   }
 
@@ -95,25 +95,26 @@ export class FileSource implements ArchiveSource {
     this.size = size;
   }
 
-  read(position: number, length: number): Buffer {
-    // Handle large reads by chunking to fit 32-bit signed int limit
-    const MAX_INT32 = 0x7fffffff; // 2,147,483,647 bytes (~2GB)
-
-    if (length <= MAX_INT32) {
+  read(position: number, length: number): BufferLike {
+    // For small reads that fit in a single buffer, return directly
+    // This is efficient on all Node versions
+    if (canAllocateBufferSize(length)) {
       return this.readChunk(position, length);
     }
 
-    // For large reads, split into multiple chunks
-    const chunks: Buffer[] = [];
+    // For large reads, return a BufferList to avoid large contiguous allocation
+    // This enables LZMA1 decompression on old Node versions
+    const result = new BufferList();
     let totalBytesRead = 0;
     let currentPos = position;
 
     while (totalBytesRead < length) {
       const remaining = length - totalBytesRead;
-      const chunkSize = Math.min(remaining, MAX_INT32);
+      // Use safe chunk size that works on all Node versions
+      const chunkSize = Math.min(remaining, canAllocateBufferSize(remaining) ? remaining : 256 * 1024 * 1024);
       const chunk = this.readChunk(currentPos, chunkSize);
 
-      chunks.push(chunk);
+      result.append(chunk);
       totalBytesRead += chunk.length;
       currentPos += chunk.length;
 
@@ -123,7 +124,7 @@ export class FileSource implements ArchiveSource {
       }
     }
 
-    return bufferConcat(chunks);
+    return result;
   }
 
   private readChunk(position: number, length: number): Buffer {
