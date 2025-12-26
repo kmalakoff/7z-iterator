@@ -112,38 +112,12 @@ export class SevenZipParser {
    */
   parse(callback?: VoidCallback): Promise<void> | void {
     if (this.parsed) {
-      if (typeof callback === 'function') {
-        callback(null);
-        return;
-      }
-      if (typeof Promise === 'undefined') {
-        return;
-      }
+      if (typeof callback === 'function') return callback(null);
       return Promise.resolve();
     }
 
-    const executor = (done: VoidCallback): void => {
-      this.parseInternal(done);
-    };
-
-    if (typeof callback === 'function') {
-      executor(callback);
-      return;
-    }
-
-    if (typeof Promise === 'undefined') {
-      throw new Error('Promises are not available in this runtime. Please provide a callback to parse().');
-    }
-
-    return new Promise<void>((resolve, reject) => {
-      executor((err) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        resolve();
-      });
-    });
+    if (typeof callback === 'function') return this.parseInternal(callback);
+    return new Promise<void>((resolve, reject) => this.parseInternal((err) => (err ? reject(err) : resolve())));
   }
 
   private parseInternal(callback: VoidCallback): void {
