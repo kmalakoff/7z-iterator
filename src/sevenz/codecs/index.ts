@@ -42,7 +42,7 @@ function wrapSyncDecode(fn: (input: Buffer, properties?: Buffer, unpackSize?: nu
   return (input, properties, unpackSize, callback) => {
     schedule(() => {
       try {
-        // Convert BufferList to Buffer if needed
+        // Convert BufferList to Buffer if needed (these simpler decoders need contiguous memory)
         const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
         callback(null, fn(buf, properties, unpackSize));
       } catch (err) {
@@ -62,9 +62,8 @@ function decodeLzma(input: BufferLike, properties: Buffer, unpackSize: number, c
   if (properties.length < 5) {
     throw new Error('LZMA requires 5-byte properties');
   }
-  // Convert BufferList to Buffer if needed
-  const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
-  decode7zLzma(buf, properties, unpackSize, callback);
+  // Pass BufferLike directly - xz-compat's LZMA decoder handles both Buffer and BufferList
+  decode7zLzma(input, properties, unpackSize, callback);
 }
 
 function createLzmaDecoder(properties?: Buffer, unpackSize?: number): Transform {
@@ -81,9 +80,8 @@ function decodeLzma2(input: BufferLike, properties: Buffer, unpackSize: number |
   if (properties.length < 1) {
     throw new Error('LZMA2 requires properties byte');
   }
-  // Convert BufferList to Buffer if needed
-  const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
-  decode7zLzma2(buf, properties, unpackSize, callback);
+  // Pass BufferLike directly - xz-compat's LZMA2 decoder handles both Buffer and BufferList
+  decode7zLzma2(input, properties, unpackSize, callback);
 }
 
 function createLzma2Decoder(properties?: Buffer, _unpackSize?: number): Transform {
