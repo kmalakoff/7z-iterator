@@ -7,10 +7,8 @@ import path from 'path';
 import { FIXTURE_CONTENT, TARGET } from './constants.ts';
 
 export default function validateFiles(options, _type?, callback?) {
-  if (typeof _type === 'function') {
-    callback = _type;
-    _type = undefined;
-  }
+  callback = typeof _type === 'function' ? _type : callback;
+  _type = typeof _type === 'function' ? undefined : _type;
 
   if (typeof callback === 'function') {
     if (typeof options === 'string') options = { type: options };
