@@ -33,9 +33,7 @@ export default function validateFiles(options, _type?, callback?) {
         callback();
       }
     );
-  } else {
-    return new Promise(function validatePromise(resolve, reject) {
-      validateFiles(options, _type, (err) => (err ? reject(err) : resolve(undefined)));
-    });
+    return;
   }
+  return new Promise((resolve, reject) => validateFiles(options, _type, (err?: Error) => (err ? reject(err) : resolve(null))));
 }
