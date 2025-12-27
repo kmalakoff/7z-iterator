@@ -44,11 +44,7 @@ export default class SevenZipFileEntry extends FileEntry {
         }
       });
     }
-    return new Promise((resolve, reject) =>
-      this.create(dest, options, (err?: Error, done?: boolean) => {
-        err ? reject(err) : resolve(done);
-      })
-    );
+    return new Promise((resolve, reject) => this.create(dest, options, (err?: Error, done?: boolean) => (err ? reject(err) : resolve(done))));
   }
 
   _writeFile(fullPath: string, _options: ExtractOptions, callback: NoParamCallback): void {
