@@ -87,7 +87,7 @@ export const UnixMode = {
   RWXRWXRWX: 511, // 0o777
   RWXRXRX: 493, // 0o755
   RWRR: 420, // 0o644
-  DEFAULT_DIR: 493, // 0o755 - rwxr-xr-x
+  DEFAULT_DIR: 448, // 0o700 - rwx------ (matches native 7z for Windows archives)
   DEFAULT_FILE: 420, // 0o644 - rw-r--r--
 };
 
