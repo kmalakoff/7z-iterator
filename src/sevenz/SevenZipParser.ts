@@ -28,7 +28,7 @@ import { FolderStreamSplitter } from './FolderStreamSplitter.ts';
 
 type Readable = Stream.Readable;
 
-import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE } from './constants.ts';
+import { type CodedError, createCodedError, ErrorCode, FileAttribute, PropertyId, SIGNATURE_HEADER_SIZE, UnixMode } from './constants.ts';
 import { type FileInfo, parseEncodedHeader, parseHeaderContent, parseSignatureHeader, type SignatureHeader, type StreamsInfo } from './headers.ts';
 import { readNumber } from './NumberCodec.ts';
 
@@ -479,9 +479,9 @@ export class SevenZipParser {
           type = 'link';
         }
       } else if (file.isDirectory) {
-        mode = 493; // 0o755
+        mode = UnixMode.DEFAULT_DIR;
       } else {
-        mode = 420; // 0o644
+        mode = UnixMode.DEFAULT_FILE;
       }
     }
 

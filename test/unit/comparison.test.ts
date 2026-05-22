@@ -39,7 +39,7 @@ interface FileStats {
  */
 function collectStats(dirPath: string, callback: (err: Error | null, stats?: Record<string, FileStats>) => void): void {
   const stats: Record<string, FileStats> = {};
-  const iterator = new Iterator(dirPath);
+  const iterator = new Iterator(dirPath, { alwaysStat: true });
 
   iterator.forEach(
     (entry): void => {
@@ -227,10 +227,7 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
               differences.push(`Size mismatch for ${path}: native=${statSevenZip.size}, 7z-iterator=${statIterator.size}`);
             }
 
-            // Check mode (permissions), but allow for minor differences due to umask
-            const modeDiff = Math.abs(statSevenZip.mode - statIterator.mode);
-            if (modeDiff > 0o22) {
-              // Allow up to umask differences (typically 0o022)
+            if (statSevenZip.mode !== statIterator.mode) {
               differences.push(`Mode mismatch for ${path}: native=${statSevenZip.mode.toString(8)}, 7z-iterator=${statIterator.mode.toString(8)}`);
             }
           }
