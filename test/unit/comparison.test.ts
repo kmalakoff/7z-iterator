@@ -23,6 +23,20 @@ const CACHE_PATH = path.join(CACHE_DIR, 'node-v24.12.0-win-x64.7z');
 const SEVENZIP_EXTRACT_DIR = path.join(TMP_DIR, 'sevenzip');
 const ITERATOR_EXTRACT_DIR = path.join(TMP_DIR, '7z-iterator');
 
+// Windows archives carry no Unix permissions; each native tool picks its own default.
+// On macOS both 7zz and 7z use 0o700; on Linux p7zip uses 0o755.
+const NATIVE_DIR_MODE = process.platform === 'linux' ? 493 : 448;
+
+const NATIVE_7Z_TOOLS = [
+  { command: '7zz', defaultDirMode: NATIVE_DIR_MODE },
+  { command: '7z', defaultDirMode: NATIVE_DIR_MODE },
+];
+
+type NativeTool = (typeof NATIVE_7Z_TOOLS)[0];
+
+// Directory type bit (0o40000 = 16384)
+const S_IFDIR = 16384;
+
 /**
  * Interface for file stats collected from directory tree
  */
@@ -75,41 +89,30 @@ function removeDir(dirPath: string): void {
 }
 
 /**
- * Check if a native tool is available
+ * Find the first available native 7z tool, returning its command and known default dir mode.
  */
-function _checkToolAvailable(checkCmd: string, callback: (available: boolean) => void): void {
-  exec(checkCmd, (err) => {
-    callback(!err);
-  });
-}
-
-/**
- * Find the available 7z command (7zz or 7z)
- */
-function find7zCommand(callback: (cmd: string | null) => void): void {
-  exec('which 7zz', (err) => {
-    if (!err) {
-      callback('7zz');
-    } else {
-      exec('which 7z', (err) => {
-        callback(err ? null : '7z');
-      });
+function findNative7z(callback: (tool: NativeTool | null) => void): void {
+  let i = 0;
+  function tryNext(): void {
+    if (i >= NATIVE_7Z_TOOLS.length) {
+      callback(null);
+      return;
     }
-  });
+    const tool = NATIVE_7Z_TOOLS[i++];
+    exec(`which ${tool.command}`, (err) => (err ? tryNext() : callback(tool)));
+  }
+  tryNext();
 }
 
 describe('Comparison - 7z-iterator vs native sevenzip', () => {
-  let toolAvailable = false;
-  let sevenZipCmd: string | null = null;
+  let nativeTool: NativeTool | null = null;
 
   before(function (done) {
     this.timeout(120000);
 
-    // Check if native 7z is available (try 7zz first, then 7z)
-    find7zCommand((cmd) => {
-      sevenZipCmd = cmd;
-      toolAvailable = cmd !== null;
-      if (!toolAvailable) {
+    findNative7z((tool) => {
+      nativeTool = tool;
+      if (!tool) {
         console.log('    Skipping 7z comparison tests - native 7zz/7z not available');
         done();
         return;
@@ -142,9 +145,9 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
       removeDir(SEVENZIP_EXTRACT_DIR);
       removeDir(ITERATOR_EXTRACT_DIR);
 
-      // Extract with native 7z (using whichever command is available)
-      console.log(`Extracting with native ${sevenZipCmd}...`);
-      exec(`${sevenZipCmd} x -y -o${SEVENZIP_EXTRACT_DIR} ${CACHE_PATH}`, (err, _stdout, _stderr) => {
+      // Extract with native 7z
+      console.log(`Extracting with native ${nativeTool.command}...`);
+      exec(`${nativeTool.command} x -y -o${SEVENZIP_EXTRACT_DIR} ${CACHE_PATH}`, (err, _stdout, _stderr) => {
         if (err) {
           done(err);
           return;
@@ -176,13 +179,15 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
   });
 
   it('should produce identical extraction results', function (done) {
-    if (!toolAvailable) {
+    if (!nativeTool) {
       this.skip();
       return;
     }
 
+    const tool = nativeTool;
+
     // Collect stats from both directories
-    console.log(`Collecting stats from native ${sevenZipCmd} extraction...`);
+    console.log(`Collecting stats from native ${tool.command} extraction...`);
     collectStats(SEVENZIP_EXTRACT_DIR, (err1, statsSevenZip) => {
       if (err1) {
         done(err1);
@@ -199,36 +204,42 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
         // Find differences
         const differences: string[] = [];
 
-        // Check for files only in native 7zz
-        for (const path in statsSevenZip) {
-          if (!(path in statsIterator)) {
-            differences.push(`File exists in native 7zz but not in 7z-iterator: ${path}`);
+        // Check for files only in native
+        for (const filePath in statsSevenZip) {
+          if (!(filePath in statsIterator)) {
+            differences.push(`File exists in native ${tool.command} but not in 7z-iterator: ${filePath}`);
           }
         }
 
         // Check for files only in 7z-iterator
-        for (const path in statsIterator) {
-          if (!(path in statsSevenZip)) {
-            differences.push(`File exists in 7z-iterator but not in native 7zz: ${path}`);
+        for (const filePath in statsIterator) {
+          if (!(filePath in statsSevenZip)) {
+            differences.push(`File exists in 7z-iterator but not in native ${tool.command}: ${filePath}`);
           }
         }
 
         // Check for differences in files that exist in both
-        for (const path in statsSevenZip) {
-          if (path in statsIterator) {
-            const statSevenZip = statsSevenZip[path];
-            const statIterator = statsIterator[path];
+        for (const filePath in statsSevenZip) {
+          if (filePath in statsIterator) {
+            const statNative = statsSevenZip[filePath];
+            const statIterator = statsIterator[filePath];
 
-            if (statSevenZip.type !== statIterator.type) {
-              differences.push(`Type mismatch for ${path}: native=${statSevenZip.type}, 7z-iterator=${statIterator.type}`);
+            if (statNative.type !== statIterator.type) {
+              differences.push(`Type mismatch for ${filePath}: native=${statNative.type}, 7z-iterator=${statIterator.type}`);
             }
 
-            if (statSevenZip.size !== statIterator.size) {
-              differences.push(`Size mismatch for ${path}: native=${statSevenZip.size}, 7z-iterator=${statIterator.size}`);
+            if (statNative.size !== statIterator.size) {
+              differences.push(`Size mismatch for ${filePath}: native=${statNative.size}, 7z-iterator=${statIterator.size}`);
             }
 
-            if (statSevenZip.mode !== statIterator.mode) {
-              differences.push(`Mode mismatch for ${path}: native=${statSevenZip.mode.toString(8)}, 7z-iterator=${statIterator.mode.toString(8)}`);
+            if (statNative.mode !== statIterator.mode) {
+              // Windows archives have no Unix permissions; native tools apply their own default.
+              // Accept the known difference between this tool's dir default and 7z-iterator's (0o755).
+              const nativeDirDefault = S_IFDIR | tool.defaultDirMode;
+              const iteratorDirDefault = S_IFDIR | 493; // UnixMode.DEFAULT_DIR = 0o755
+              if (!(statNative.mode === nativeDirDefault && statIterator.mode === iteratorDirDefault)) {
+                differences.push(`Mode mismatch for ${filePath}: native=${statNative.mode.toString(8)}, 7z-iterator=${statIterator.mode.toString(8)}`);
+              }
             }
           }
         }
@@ -241,7 +252,7 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
           }
           console.error('=========================\n');
 
-          done(new Error(`Found ${differences.length} difference(s) between native 7zz and 7z-iterator extraction`));
+          done(new Error(`Found ${differences.length} difference(s) between native ${tool.command} and 7z-iterator extraction`));
           return;
         }
 
