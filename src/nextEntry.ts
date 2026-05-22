@@ -3,6 +3,7 @@ import { type DirectoryAttributes, DirectoryEntry, type FileAttributes, type Lin
 import path from 'path';
 import FileEntry from './FileEntry.ts';
 import type SevenZipIterator from './SevenZipIterator.ts';
+import { UnixMode } from './sevenz/constants.ts';
 import type { SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
 import type { Entry, EntryCallback } from './types.ts';
 
@@ -53,9 +54,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
   // Determine type from entry
   const type = entry.type;
 
-  // Default modes (decimal values for Node 0.8 compatibility)
-  // 0o755 = 493, 0o644 = 420
-  const defaultMode = type === 'directory' ? 493 : 420;
+  const defaultMode = type === 'directory' ? UnixMode.DEFAULT_DIR : UnixMode.DEFAULT_FILE;
 
   // Build attributes from 7z entry
   // mtime must be timestamp (number) for FileAttributes compatibility
