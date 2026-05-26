@@ -58,11 +58,15 @@ export interface Codec {
 }
 
 // Simple wrappers with validation that use xz-compat's optimized decode7zLzma/decode7zLzma2
-function decodeLzma(input: BufferLike, properties: Buffer, unpackSize: number, callback: CodecDecodeCallback<Buffer>): void {
-  if (properties.length < 5) {
-    throw new Error('LZMA requires 5-byte properties');
+function decodeLzma(input: BufferLike, properties: Buffer | undefined, unpackSize: number | undefined, callback: CodecDecodeCallback<Buffer>): void {
+  if (!properties || properties.length < 5) {
+    callback(new Error('LZMA requires 5-byte properties'));
+    return;
   }
-  // Pass BufferLike directly - xz-compat's LZMA decoder handles both Buffer and BufferList
+  if (unpackSize === undefined || unpackSize < 0) {
+    callback(new Error('LZMA requires known unpack size'));
+    return;
+  }
   decode7zLzma(input, properties, unpackSize, callback);
 }
 
@@ -76,11 +80,11 @@ function createLzmaDecoder(properties?: Buffer, unpackSize?: number): Transform 
   return _createLzmaDecoder(properties, unpackSize) as Transform;
 }
 
-function decodeLzma2(input: BufferLike, properties: Buffer, unpackSize: number | undefined, callback: CodecDecodeCallback<Buffer>): void {
-  if (properties.length < 1) {
-    throw new Error('LZMA2 requires properties byte');
+function decodeLzma2(input: BufferLike, properties: Buffer | undefined, unpackSize: number | undefined, callback: CodecDecodeCallback<Buffer>): void {
+  if (!properties || properties.length < 1) {
+    callback(new Error('LZMA2 requires properties byte'));
+    return;
   }
-  // Pass BufferLike directly - xz-compat's LZMA2 decoder handles both Buffer and BufferList
   decode7zLzma2(input, properties, unpackSize, callback);
 }
 
@@ -265,7 +269,7 @@ registerCodec(CodecId.AES, {
 // BCJ2 (x86-64) filter - multi-stream
 // Note: BCJ2 requires special handling in SevenZipParser due to 4-stream architecture
 registerCodec(CodecId.BCJ2, {
-  decode: decodeBcj2,
+  decode: wrapSyncDecode(decodeBcj2),
   createDecoder: createBcj2Decoder,
 });
 

@@ -1,4 +1,4 @@
-import SevenZipIterator from '7z-iterator';
+import SevenZipIterator, { type Entry, type ExtractOptions } from '7z-iterator';
 import assert from 'assert';
 import fs from 'fs';
 import { safeRm } from 'fs-remove-compat';
@@ -7,9 +7,9 @@ import path from 'path';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
 import validateFiles from '../lib/validateFiles.ts';
 
-function extract(iterator, dest, options, callback) {
+function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions & { concurrency?: number }, callback: (err?: Error) => void): void {
   iterator.forEach(
-    (entry, callback) => {
+    (entry: Entry, callback: (err?: Error) => void) => {
       entry.create(dest, options, callback);
     },
     { callbacks: true, concurrency: options.concurrency },
@@ -39,14 +39,12 @@ describe('callback', () => {
     it('destroy entries', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'copy.7z'));
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entry.destroy();
         },
-        (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+        (err?: Error) => {
+          if (err) return done(err);
+
           done();
         }
       );
@@ -55,16 +53,11 @@ describe('callback', () => {
     it('extract - no strip - concurrency 1', (done) => {
       const options = { now: new Date(), concurrency: 1 };
       extract(new SevenZipIterator(path.join(DATA_DIR, 'copy.7z')), TARGET, options, (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
+        if (err) return done(err);
 
         validateFiles(options, (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         });
       });
@@ -73,16 +66,11 @@ describe('callback', () => {
     it('extract - no strip - concurrency Infinity', (done) => {
       const options = { now: new Date(), concurrency: Infinity };
       extract(new SevenZipIterator(path.join(DATA_DIR, 'copy.7z')), TARGET, options, (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
+        if (err) return done(err);
 
         validateFiles(options, (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         });
       });
@@ -92,16 +80,11 @@ describe('callback', () => {
       const options = { now: new Date() };
       const source = fs.createReadStream(path.join(DATA_DIR, 'copy.7z'));
       extract(new SevenZipIterator(source), TARGET, options, (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
+        if (err) return done(err);
 
         validateFiles(options, (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         });
       });
@@ -110,16 +93,11 @@ describe('callback', () => {
     it('extract - strip 1', (done) => {
       const options = { now: new Date(), strip: 1 };
       extract(new SevenZipIterator(path.join(DATA_DIR, 'copy.7z')), TARGET, options, (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
+        if (err) return done(err);
 
         validateFiles(options, (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         });
       });
@@ -128,33 +106,17 @@ describe('callback', () => {
     it('extract multiple times', (done) => {
       const options = { now: new Date(), strip: 1 };
       extract(new SevenZipIterator(path.join(DATA_DIR, 'copy.7z')), TARGET, options, (err) => {
-        if (err) {
-          done(err);
-          return;
-        }
+        if (err) return done(err);
 
         validateFiles(options, (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           extract(new SevenZipIterator(path.join(DATA_DIR, 'copy.7z')), TARGET, options, (err) => {
             assert.ok(err);
 
             extract(new SevenZipIterator(path.join(DATA_DIR, 'copy.7z')), TARGET, { force: true, ...options }, (err) => {
-              if (err) {
-                done(err);
-                return;
-              }
-
-              validateFiles(options, (err) => {
-                if (err) {
-                  done(err);
-                  return;
-                }
-                done();
-              });
+              if (err) return done(err);
+              validateFiles(options, (err) => (err ? done(err) : done()));
             });
           });
         });

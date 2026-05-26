@@ -1,4 +1,5 @@
 // Stream to source conversion: writes stream to temp file for random access
+import type { CallFn } from 'call-once-fn';
 import once from 'call-once-fn';
 import { bufferFrom } from 'extract-base-iterator';
 import fs from 'graceful-fs';
@@ -28,7 +29,7 @@ export type Callback = (error?: Error, result?: SourceResult) => void;
 export default function streamToSource(stream: NodeJS.ReadableStream, options: StreamToSourceOptions, callback: Callback): void {
   const tempPath = options.tempPath;
 
-  const end = once(callback);
+  const end = once(callback as unknown as CallFn) as unknown as Callback;
 
   mkdirp.sync(path.dirname(tempPath));
   const writeStream = fs.createWriteStream(tempPath);
@@ -47,7 +48,7 @@ export default function streamToSource(stream: NodeJS.ReadableStream, options: S
             fs.closeSync(fd);
             return end(statErr);
           }
-          end(null, {
+          end(undefined, {
             source: new FileSource(fd, stats.size),
             fd: fd,
             tempPath: tempPath,
@@ -63,6 +64,6 @@ export default function streamToSource(stream: NodeJS.ReadableStream, options: S
   }
 
   stream.on('data', onData);
-  oo(stream, ['error'], onError);
+  oo(stream, ['error'], onError as unknown as CallFn);
   oo(stream, ['end', 'close', 'finish'], onEnd);
 }

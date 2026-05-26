@@ -31,7 +31,7 @@ export function downloadFixture(url: string, filename: string, callback: (err: E
     mkdirp(CACHE_DIR, (mkdirErr: Error | null) => {
       if (mkdirErr) return callback(mkdirErr);
 
-      getFile(url, filepath, (downloadErr?: Error) => {
+      getFile(url, filepath, (downloadErr: Error | null) => {
         if (downloadErr) return callback(downloadErr);
         callback(null, filepath);
       });

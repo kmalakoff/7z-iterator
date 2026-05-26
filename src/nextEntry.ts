@@ -1,5 +1,6 @@
+import type { CallFn } from 'call-once-fn';
 import once from 'call-once-fn';
-import { type DirectoryAttributes, DirectoryEntry, type FileAttributes, type LinkAttributes, SymbolicLinkEntry } from 'extract-base-iterator';
+import { type DirectoryAttributes, DirectoryEntry, type FileAttributes, type LinkAttributes, type Lock, SymbolicLinkEntry } from 'extract-base-iterator';
 import path from 'path';
 import FileEntry from './FileEntry.ts';
 import type SevenZipIterator from './SevenZipIterator.ts';
@@ -36,19 +37,16 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
   let entry: SevenZipEntry | null = null;
   entry = internalIter.next();
 
-  const nextCallback = once((err?: Error, entry?: Entry) => {
-    // keep processing
-    if (entry) iterator.push(nextEntry);
-    err ? callback(err) : callback(null, entry ? { done: false, value: entry } : { done: true, value: null });
-  }) as NextCallback;
+  const nextCallback = once(((err?: Error, entry?: Entry) => {
+    if (entry) iterator.push(nextEntry as unknown as Parameters<typeof iterator.push>[0]);
+    err ? callback(err) : callback(undefined, entry ? { done: false, value: entry } : { done: true, value: undefined as unknown as Entry });
+  }) as unknown as CallFn) as unknown as NextCallback;
 
-  // done: signal iteration is complete (guard against stale lock)
-  if (!iterator.lock || iterator.isDone() || !entry) return callback(null, { done: true, value: null });
+  if (!iterator.lock || iterator.isDone() || !entry) return callback(undefined, { done: true, value: undefined as unknown as Entry });
 
-  // Skip anti-files (these mark files to delete in delta archives)
   if (entry.isAntiFile) {
-    iterator.push(nextEntry);
-    return callback(null, null);
+    iterator.push(nextEntry as unknown as Parameters<typeof iterator.push>[0]);
+    return callback();
   }
 
   // Determine type from entry
@@ -69,7 +67,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
   switch (type) {
     case 'directory':
       attributes.type = 'directory';
-      return nextCallback(null, new DirectoryEntry(attributes as DirectoryAttributes));
+      return nextCallback(undefined, new DirectoryEntry(attributes as DirectoryAttributes));
 
     case 'link': {
       // For symlinks, the file content IS the symlink target path
@@ -92,7 +90,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
           linkpath: linkpath,
         };
 
-        nextCallback(null, new SymbolicLinkEntry(linkAttributes));
+        nextCallback(undefined, new SymbolicLinkEntry(linkAttributes));
       });
       stream.on('error', (streamErr: Error) => {
         nextCallback(streamErr);
@@ -106,7 +104,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
       const parser = internalIter.getParser();
 
       const stream = parser.getEntryStream(entry);
-      return nextCallback(null, new FileEntry(attributes as FileAttributes, stream, iterator.lock, entry._canStream));
+      return nextCallback(undefined, new FileEntry(attributes as FileAttributes, stream, iterator.lock as Lock, entry._canStream));
     }
   }
 
