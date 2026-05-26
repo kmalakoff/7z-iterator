@@ -1,4 +1,4 @@
-import SevenZipIterator from '7z-iterator';
+import SevenZipIterator, { type Entry } from '7z-iterator';
 import assert from 'assert';
 import fs from 'fs';
 import { safeRm } from 'fs-remove-compat';
@@ -22,16 +22,14 @@ describe('fixtures', () => {
   describe('empty.7z', () => {
     it('should iterate empty archive', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'empty.7z'));
-      const entries = [];
+      const entries: Entry[] = [];
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entries.push(entry);
         },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           // Empty archive has 1 empty directory
           assert.equal(entries.length, 1);
           assert.equal(entries[0].type, 'directory');
@@ -49,10 +47,8 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         }
       );
@@ -62,16 +58,14 @@ describe('fixtures', () => {
   describe('unicode.7z', () => {
     it('should iterate unicode filenames', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'unicode.7z'));
-      const entries = [];
+      const entries: { path: string; type: string }[] = [];
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           // Should have dirs and files with unicode names
           assert.ok(entries.length >= 3, 'Should have at least 3 entries');
 
@@ -92,10 +86,8 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         }
       );
@@ -111,10 +103,8 @@ describe('fixtures', () => {
       iterator.forEach(
         (entry, callback) => {
           entry.create(TARGET, options, (err) => {
-            if (err) {
-              errorOccurred = true;
-              // CRC error is expected - continue to see if we catch it
-            }
+            // CRC error is expected - continue to see if we catch it
+            if (err) errorOccurred = true;
             callback(err);
           });
         },
@@ -132,7 +122,7 @@ describe('fixtures', () => {
     it('should fail on truncated archive', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated.7z'));
       iterator.forEach(
-        (_entry): void => {
+        (_entry: Entry): void => {
           // Should not get here
           assert.ok(false, 'Should not iterate truncated archive');
         },
@@ -165,7 +155,7 @@ describe('fixtures', () => {
     it('should fail on truncated signature header', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated-signature.7z'));
       iterator.forEach(
-        (_entry): void => {
+        (_entry: Entry): void => {
           // Should not get here
           assert.ok(false, 'Should not iterate archive with truncated signature');
         },
@@ -183,7 +173,7 @@ describe('fixtures', () => {
     it('should fail on truncated encoded header', (done) => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'truncated-header.7z'));
       iterator.forEach(
-        (_entry): void => {
+        (_entry: Entry): void => {
           // Should not get here
           assert.ok(false, 'Should not iterate archive with truncated header');
         },
@@ -201,14 +191,12 @@ describe('fixtures', () => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'lzma2.7z'));
       const entries: { path: string; type: string }[] = [];
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           // Verify structure
           assert.ok(entries.length >= 4, 'Should have entries');
           done();
@@ -225,10 +213,8 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           done();
         }
       );
@@ -249,10 +235,7 @@ describe('fixtures', () => {
         },
         { callbacks: true, concurrency: 1 },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Read extracted file contents
           const fileContents: string[] = [];
@@ -292,14 +275,12 @@ describe('fixtures', () => {
       const iterator = new SevenZipIterator(path.join(DATA_DIR, 'lzma1.7z'));
       const entries: { path: string; type: string }[] = [];
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           assert.equal(entries.length, 2, 'Should have 2 files');
           done();
         }
@@ -319,10 +300,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify file contents
           for (let i = 0; i < filePaths.length; i++) {
@@ -350,10 +328,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify extracted content
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8');
@@ -380,10 +355,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify extracted content - delta.7z contains test.dat
           const content = fs.readFileSync(path.join(TARGET, extractedPath));
@@ -412,10 +384,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify extracted content
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
@@ -441,10 +410,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify extracted content
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
@@ -463,14 +429,11 @@ describe('fixtures', () => {
       const entries: { path: string; type: string }[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entries.push({ path: entry.path, type: entry.type });
         },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Should have 7 entries (6 directories + 1 file)
           assert.equal(entries.length, 7, 'Should have 7 entries');
@@ -500,10 +463,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify the deep file was extracted correctly
           const extractedPath = path.join(TARGET, deepFilePath);
@@ -523,17 +483,14 @@ describe('fixtures', () => {
       const symlinks: { path: string; type: string; linkpath?: string }[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           if (entry.type === 'symlink') {
             const linkpath = (entry as { linkpath?: string }).linkpath;
             symlinks.push({ path: entry.path, type: entry.type, linkpath: linkpath });
           }
         },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Should have 5 symlinks
           assert.equal(symlinks.length, 5, 'Should have 5 symlinks');
@@ -564,7 +521,7 @@ describe('fixtures', () => {
       // Collect entries first, then create in order: dirs, files, symlinks
       // This ensures symlink targets exist before symlinks are created
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           if (entry.type === 'symlink') {
             symlinks.push(entry.path);
           } else if (entry.type === 'file') {
@@ -574,10 +531,7 @@ describe('fixtures', () => {
           }
         },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Create directories first, then files, then symlinks
           const iterator2 = new SevenZipIterator(path.join(DATA_DIR, 'symlink.7z'));
@@ -639,10 +593,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           // Verify extracted content
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
@@ -702,10 +653,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
           assert.equal(content, 'BCJ ARM filter test content', 'Should extract ARM BCJ content');
@@ -729,10 +677,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
           assert.equal(content, 'BCJ ARM64 filter test content', 'Should extract ARM64 BCJ content');
@@ -756,10 +701,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
           assert.equal(content, 'BCJ PowerPC filter test content', 'Should extract PowerPC BCJ content');
@@ -783,10 +725,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
           assert.equal(content, 'BCJ IA64 filter test content', 'Should extract IA64 BCJ content');
@@ -810,10 +749,7 @@ describe('fixtures', () => {
         },
         { callbacks: true },
         (err): void => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
 
           const content = fs.readFileSync(path.join(TARGET, extractedPath), 'utf8').trim();
           assert.equal(content, 'BCJ SPARC filter test content', 'Should extract SPARC BCJ content');

@@ -67,8 +67,11 @@
     "xz-compat": "^1.2.4"
   },
   "devDependencies": {
+    "@types/graceful-fs": "^4.1.9",
     "@types/mocha": "*",
     "@types/node": "*",
+    "@types/short-hash": "^1.0.3",
+    "@types/unbzip2-stream": "^1.4.3",
     "fs-iterator": "^7.0.0",
     "fs-stats-spys": "^1.0.0",
     "get-file-compat": "^2.0.0",

@@ -18,6 +18,7 @@
  * - Supports LZMA, LZMA2, COPY, BCJ2, and other codecs
  */
 
+import type { CallFn } from 'call-once-fn';
 import once from 'call-once-fn';
 import { type BufferLike, crc32, PassThrough } from 'extract-base-iterator';
 import type Stream from 'stream';
@@ -94,7 +95,7 @@ export class SevenZipParser {
    * Decode using codec - accepts BufferLike for LZMA1 support
    */
   private decodeWithCodec(codec: Codec, input: BufferLike, properties: Buffer | undefined, unpackSize: number | undefined, callback: BufferCallback): void {
-    const done = once(callback);
+    const done = once(callback as unknown as CallFn) as unknown as BufferCallback;
     try {
       codec.decode(input, properties, unpackSize, (err, result) => {
         if (err) return done(err);
