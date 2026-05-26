@@ -6,7 +6,7 @@ import path from 'path';
 
 import { FIXTURE_CONTENT, TARGET } from './constants.ts';
 
-type Callback = (err?: Error) => void;
+type Callback = (err?: Error | null) => void;
 
 export default function validateFiles(options: Record<string, unknown> | string, _type?: Callback | string, callback?: Callback): void | Promise<void> {
   callback = typeof _type === 'function' ? _type : callback;
@@ -28,7 +28,7 @@ export default function validateFiles(options: Record<string, unknown> | string,
           assert.ok(content.indexOf(FIXTURE_CONTENT) === 0, `File content should start with fixture content prefix: ${entry.fullPath}`);
         }
       },
-      (err?: Error): void => {
+      (err?: Error | null): void => {
         if (err) return cb(err);
         // Our test fixture has 4 directories (data, dir1, dir2, dir3) and 4 files
         assert.equal(spys.dir.callCount, 3, 'Expected 3 subdirectories (dir1, dir1/dir2, dir3)');
@@ -38,5 +38,5 @@ export default function validateFiles(options: Record<string, unknown> | string,
     );
     return;
   }
-  return new Promise((resolve, reject) => validateFiles(options, _type as string, (err?: Error) => (err ? reject(err) : resolve())));
+  return new Promise((resolve, reject) => validateFiles(options, _type as string, (err?: Error | null) => (err ? reject(err) : resolve())));
 }
