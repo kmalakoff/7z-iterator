@@ -18,7 +18,7 @@ export interface SourceResult {
   tempPath: string; // Caller must clean up
 }
 
-export type Callback = (error?: Error, result?: SourceResult) => void;
+export type Callback = (error?: Error | null, result?: SourceResult) => void;
 
 /**
  * Convert a stream to a FileSource by writing to temp file

@@ -7,9 +7,9 @@ import path from 'path';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
 import validateFiles from '../lib/validateFiles.ts';
 
-function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions & { concurrency?: number }, callback: (err?: Error) => void): void {
+function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions & { concurrency?: number }, callback: (err?: Error | null) => void): void {
   iterator.forEach(
-    (entry: Entry, callback: (err?: Error) => void) => {
+    (entry: Entry, callback: (err?: Error | null) => void) => {
       entry.create(dest, options, callback);
     },
     { callbacks: true, concurrency: options.concurrency },
@@ -42,7 +42,7 @@ describe('callback', () => {
         (entry: Entry): void => {
           entry.destroy();
         },
-        (err?: Error) => {
+        (err?: Error | null) => {
           if (err) return done(err);
 
           done();
