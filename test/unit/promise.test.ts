@@ -8,7 +8,7 @@ import Pinkie from 'pinkie-promise';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
 import validateFiles from '../lib/validateFiles.ts';
 
-function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions & { concurrency?: number }, callback: (err?: Error) => void): void {
+function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions & { concurrency?: number }, callback: (err?: Error | null) => void): void {
   iterator
     .forEach(
       (entry: Entry) => {

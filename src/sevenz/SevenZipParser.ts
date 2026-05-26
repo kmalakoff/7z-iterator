@@ -617,9 +617,9 @@ export class SevenZipParser {
     // IMPORTANT: Emit error synchronously BEFORE calling original destroy.
     // On older Node, destroy() emits 'finish' and 'end' before 'error',
     // which causes piped streams to complete successfully before the error fires.
-    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error) => NodeJS.ReadableStream };
+    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => NodeJS.ReadableStream };
     const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
-    streamWithDestroy.destroy = (err?: Error) => {
+    streamWithDestroy.destroy = (err?: Error | null) => {
       destroyed = true;
       if (err) stream.emit('error', err);
       if (folderStream) folderStream.destroy();
@@ -705,9 +705,9 @@ export class SevenZipParser {
     // IMPORTANT: Emit error synchronously BEFORE calling original destroy.
     // On older Node, destroy() emits 'finish' and 'end' before 'error',
     // which causes piped streams to complete successfully before the error fires.
-    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error) => NodeJS.ReadableStream };
+    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => NodeJS.ReadableStream };
     const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
-    streamWithDestroy.destroy = (err?: Error) => {
+    streamWithDestroy.destroy = (err?: Error | null) => {
       destroyed = true;
       if (err) stream.emit('error', err);
       if (originalDestroy) return originalDestroy();
@@ -1162,7 +1162,7 @@ export class SevenZipParser {
     output: Readable;
     pause: () => void;
     resume: () => void;
-    destroy: (err?: Error) => void;
+    destroy: (err?: Error | null) => void;
   } {
     if (!this.streamsInfo) {
       throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
@@ -1210,12 +1210,12 @@ export class SevenZipParser {
       output: stream,
       pause: () => packedStream.pause(),
       resume: () => packedStream.resume(),
-      destroy: (err?: Error) => {
+      destroy: (err?: Error | null) => {
         // Check for destroy method existence (not available in Node 4 and earlier)
-        const ps = packedStream as NodeJS.ReadableStream & { destroy?: (err?: Error) => void };
+        const ps = packedStream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => void };
         if (typeof ps.destroy === 'function') ps.destroy(err);
         for (let i = 0; i < decoders.length; i++) {
-          const d = decoders[i] as NodeJS.ReadableStream & { destroy?: (err?: Error) => void };
+          const d = decoders[i] as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => void };
           if (typeof d.destroy === 'function') d.destroy(err);
         }
       },

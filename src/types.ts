@@ -18,4 +18,4 @@ export interface ExtractOptions extends BaseExtractOptions {
   password?: string;
 }
 
-export type EntryCallback = (error?: Error, result?: IteratorResult<Entry>) => void;
+export type EntryCallback = (error?: Error | null, result?: IteratorResult<Entry>) => void;

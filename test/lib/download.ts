@@ -43,8 +43,8 @@ export function downloadFixture(url: string, filename: string, callback: (err: E
  * Ensure a fixture is downloaded before tests run
  * Returns a mocha before() hook
  */
-export function ensureFixture(url: string, filename: string): (done: (err?: Error) => void) => void {
-  return function beforeHook(done: (err?: Error) => void): void {
+export function ensureFixture(url: string, filename: string): (done: (err?: Error | null) => void) => void {
+  return function beforeHook(done: (err?: Error | null) => void): void {
     downloadFixture(url, filename, (err) => {
       done(err || undefined);
     });

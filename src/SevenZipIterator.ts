@@ -55,7 +55,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
   constructor(source: string | NodeJS.ReadableStream, options: ExtractOptions = {}) {
     super(options);
     this.lock = new Lock();
-    this.lock.onDestroy = (err: Error | null) => BaseIterator.prototype.end.call(this, err ?? undefined);
+    this.lock.onDestroy = (err: Error | null) => BaseIterator.prototype.end.call(this, err);
     const queue = new Queue(1);
     let cancelled = false;
     let archiveSource: ArchiveSource | null = null;
@@ -69,7 +69,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
 
     if (typeof source === 'string') {
       // File path input - use FileSource directly
-      queue.defer((cb: (err?: Error) => void) => {
+      queue.defer((cb: (err?: Error | null) => void) => {
         fs.stat(source, (statErr, stats) => {
           if (this.done || cancelled) return;
           if (statErr) return cb(statErr);
@@ -96,8 +96,8 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
       });
 
       const tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
-      queue.defer((cb: (err?: Error) => void) => {
-        streamToSource(source, { tempPath }, (err?: Error, result?: SourceResult) => {
+      queue.defer((cb: (err?: Error | null) => void) => {
+        streamToSource(source, { tempPath }, (err?: Error | null, result?: SourceResult) => {
           if (this.done || cancelled) return;
           if (err) return cb(err);
           if (!result) return cb(new Error('No result from streamToSource'));
@@ -122,7 +122,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
     }
 
     // Parse and build iterator
-    queue.defer((cb: (err?: Error) => void) => {
+    queue.defer((cb: (err?: Error | null) => void) => {
       if (this.done || cancelled) return;
       if (!archiveSource) return cb(new Error('No archive source'));
 
@@ -142,14 +142,14 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
     });
 
     // start processing
-    queue.await((err?: Error) => {
+    queue.await((err?: Error | null) => {
       this.processing.remove(setup);
       if (this.done || cancelled) return;
       err ? this.end(err) : this.push(nextEntry as unknown as Parameters<typeof this.push>[0]);
     });
   }
 
-  end(err?: Error) {
+  end(err?: Error | null) {
     if (this.lock) {
       const lock = this.lock;
       this.lock = null; // Clear before release to prevent re-entrancy
