@@ -8,7 +8,7 @@ import { UnixMode } from './sevenz/constants.ts';
 import type { SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
 import type { Entry, EntryCallback } from './types.ts';
 
-export type NextCallback = (error?: Error, entry?: Entry) => void;
+export type NextCallback = (error?: Error | null, entry?: Entry) => void;
 
 /** @internal */
 interface InternalIterator {
@@ -37,7 +37,7 @@ export default function nextEntry<_T>(iterator: SevenZipIterator, callback: Entr
   let entry: SevenZipEntry | null = null;
   entry = internalIter.next();
 
-  const nextCallback = once(((err?: Error, entry?: Entry) => {
+  const nextCallback = once(((err?: Error | null, entry?: Entry) => {
     if (entry) iterator.push(nextEntry as unknown as Parameters<typeof iterator.push>[0]);
     err ? callback(err) : callback(undefined, entry ? { done: false, value: entry } : { done: true, value: undefined as unknown as Entry });
   }) as unknown as CallFn) as unknown as NextCallback;
