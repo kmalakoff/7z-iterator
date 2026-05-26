@@ -8,7 +8,7 @@
  * Uses Node.js Windows distribution as a real-world BCJ2 test case.
  * The archive is downloaded and cached in .tmp/fixtures on first run.
  */
-import SevenZipIterator from '7z-iterator';
+import SevenZipIterator, { type Entry } from '7z-iterator';
 import assert from 'assert';
 import { allocBuffer } from 'extract-base-iterator';
 import fs from 'fs';
@@ -34,14 +34,12 @@ describe('BCJ2 archives (large varints)', () => {
       const entries: string[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           entries.push(entry.path);
         },
         (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           // Should have parsed all entries
           assert.ok(entries.length > 2000, `Should have at least 2000 entries, got ${entries.length}`);
 
@@ -70,13 +68,10 @@ describe('BCJ2 archives (large varints)', () => {
           entryCount++;
         },
         (err) => {
-          if (err) {
-            // If varint parsing is wrong, we'd get:
-            // - "LZMA decompression failed" (wrong data position)
-            // - "CRC mismatch" (decompressed from wrong position)
-            done(new Error(`BCJ2 archive parsing failed (likely varint bug): ${err.message}`));
-            return;
-          }
+          // If varint parsing is wrong, we'd get:
+          // - "LZMA decompression failed" (wrong data position)
+          // - "CRC mismatch" (decompressed from wrong position)
+          if (err) return done(new Error(`BCJ2 archive parsing failed (likely varint bug): ${err.message}`));
 
           // Successful parsing means varints were decoded correctly
           assert.ok(entryCount > 0, 'Should have parsed entries');
@@ -115,13 +110,8 @@ describe('BCJ2 archives (large varints)', () => {
             },
             { callbacks: true, concurrency: 1 },
             (err) => {
-              if (err) {
-                // Clean up and report error
-                safeRm(targetDir, () => {
-                  done(new Error(`BCJ2 file extraction failed: ${err.message}`));
-                });
-                return;
-              }
+              // Clean up and report error
+              if (err) return safeRm(targetDir, () => done(new Error(`BCJ2 file extraction failed: ${err.message}`)));
 
               if (!extracted) {
                 safeRm(targetDir, () => {
@@ -133,12 +123,7 @@ describe('BCJ2 archives (large varints)', () => {
               // Verify the extracted file exists and has expected size
               const exePath = path.join(targetDir, 'node.exe');
               fs.stat(exePath, (err, stats) => {
-                if (err) {
-                  safeRm(targetDir, () => {
-                    done(new Error(`Extracted node.exe file not found: ${err.message}`));
-                  });
-                  return;
-                }
+                if (err) return safeRm(targetDir, () => done(new Error(`Extracted node.exe file not found: ${err.message}`)));
 
                 // node.exe should be around 80MB
                 try {

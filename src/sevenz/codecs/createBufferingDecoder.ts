@@ -23,13 +23,8 @@ export default function createBufferingDecoder(decodeFn: DecodeFn, properties?: 
     flush: function (callback: TransformCallback) {
       const input = Buffer.concat(chunks);
       const finish = (err?: Error | null, output?: Buffer) => {
-        if (err) {
-          callback(err);
-          return;
-        }
-        if (output) {
-          this.push(output);
-        }
+        if (err) return callback(err);
+        if (output) this.push(output);
         callback();
       };
 

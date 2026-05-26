@@ -1,4 +1,4 @@
-import SevenZipIterator from '7z-iterator';
+import SevenZipIterator, { type Entry, type ExtractOptions } from '7z-iterator';
 import assert from 'assert';
 import { safeRm } from 'fs-remove-compat';
 import mkdirp from 'mkdirp-classic';
@@ -7,8 +7,8 @@ import Pinkie from 'pinkie-promise';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
 import validateFiles from '../lib/validateFiles.ts';
 
-async function extract(iterator, dest, options) {
-  for await (const entry of iterator) {
+async function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions): Promise<void> {
+  for await (const entry of iterator as AsyncIterable<Entry>) {
     await entry.create(dest, options);
   }
 }

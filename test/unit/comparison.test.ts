@@ -10,7 +10,7 @@ import SevenZipIterator from '7z-iterator';
 import assert from 'assert';
 import { exec } from 'child_process';
 import fs from 'fs';
-import Iterator from 'fs-iterator';
+import Iterator, { type Entry as FSEntry } from 'fs-iterator';
 import { rmSync } from 'fs-remove-compat';
 import getFile from 'get-file-compat';
 import path from 'path';
@@ -56,26 +56,20 @@ function collectStats(dirPath: string, callback: (err: Error | null, stats?: Rec
   const iterator = new Iterator(dirPath, { alwaysStat: true });
 
   iterator.forEach(
-    (entry): void => {
-      // Calculate relative path from dirPath
-      const absolutePath = entry.absolute || entry.absolutePath || entry.path;
+    (entry: FSEntry): void => {
+      const absolutePath = (entry as FSEntry & { absolute?: string; absolutePath?: string }).absolute || (entry as FSEntry & { absolute?: string; absolutePath?: string }).absolutePath || entry.path;
       const relativePath = path.relative(dirPath, absolutePath);
+      const s = entry.stats as import('fs').Stats;
 
       stats[relativePath] = {
-        size: entry.stats.size,
-        mode: entry.stats.mode,
-        mtime: entry.stats.mtime instanceof Date ? entry.stats.mtime.getTime() : 0,
-        type: entry.stats.isDirectory() ? 'directory' : entry.stats.isFile() ? 'file' : entry.stats.isSymbolicLink() ? 'symlink' : 'other',
+        size: s.size,
+        mode: s.mode,
+        mtime: s.mtime instanceof Date ? s.mtime.getTime() : 0,
+        type: s.isDirectory() ? 'directory' : s.isFile() ? 'file' : s.isSymbolicLink() ? 'symlink' : 'other',
       };
     },
     { concurrency: 1024 },
-    (err) => {
-      if (err) {
-        callback(err);
-      } else {
-        callback(null, stats);
-      }
-    }
+    (err) => (err ? callback(err) : callback(null, stats))
   );
 }
 
@@ -127,10 +121,8 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
       if (!fs.existsSync(CACHE_PATH)) {
         console.log(`Downloading ${ARCHIVE_URL}...`);
         getFile(ARCHIVE_URL, CACHE_PATH, (err) => {
-          if (err) {
-            done(err);
-            return;
-          }
+          if (err) return done(err);
+
           console.log('Download complete');
           startExtraction();
         });
@@ -145,13 +137,11 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
       removeDir(SEVENZIP_EXTRACT_DIR);
       removeDir(ITERATOR_EXTRACT_DIR);
 
+      const tool = nativeTool as NativeTool;
       // Extract with native 7z
-      console.log(`Extracting with native ${nativeTool.command}...`);
-      exec(`${nativeTool.command} x -y -o${SEVENZIP_EXTRACT_DIR} ${CACHE_PATH}`, (err, _stdout, _stderr) => {
-        if (err) {
-          done(err);
-          return;
-        }
+      console.log(`Extracting with native ${tool.command}...`);
+      exec(`${tool.command} x -y -o${SEVENZIP_EXTRACT_DIR} ${CACHE_PATH}`, (err, _stdout, _stderr) => {
+        if (err) return done(err);
 
         // Extract with 7z-iterator
         console.log('Extracting with 7z-iterator...');
@@ -166,12 +156,9 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
           },
           { callbacks: true },
           (err): void => {
-            if (err) {
-              done(err);
-            } else {
-              console.log('Both extractions complete');
-              done();
-            }
+            if (err) return done(err);
+            console.log('Both extractions complete');
+            done();
           }
         );
       });
@@ -201,28 +188,31 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
           return;
         }
 
+        const sz = statsSevenZip as Record<string, FileStats>;
+        const si = statsIterator as Record<string, FileStats>;
+
         // Find differences
         const differences: string[] = [];
 
         // Check for files only in native
-        for (const filePath in statsSevenZip) {
-          if (!(filePath in statsIterator)) {
+        for (const filePath in sz) {
+          if (!(filePath in si)) {
             differences.push(`File exists in native ${tool.command} but not in 7z-iterator: ${filePath}`);
           }
         }
 
         // Check for files only in 7z-iterator
-        for (const filePath in statsIterator) {
-          if (!(filePath in statsSevenZip)) {
+        for (const filePath in si) {
+          if (!(filePath in sz)) {
             differences.push(`File exists in 7z-iterator but not in native ${tool.command}: ${filePath}`);
           }
         }
 
         // Check for differences in files that exist in both
-        for (const filePath in statsSevenZip) {
-          if (filePath in statsIterator) {
-            const statNative = statsSevenZip[filePath];
-            const statIterator = statsIterator[filePath];
+        for (const filePath in sz) {
+          if (filePath in si) {
+            const statNative = sz[filePath];
+            const statIterator = si[filePath];
 
             if (statNative.type !== statIterator.type) {
               differences.push(`Type mismatch for ${filePath}: native=${statNative.type}, 7z-iterator=${statIterator.type}`);
@@ -256,7 +246,7 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
           return;
         }
 
-        assert.strictEqual(Object.keys(statsSevenZip).length, Object.keys(statsIterator).length, 'Should have same number of files');
+        assert.strictEqual(Object.keys(sz).length, Object.keys(si).length, 'Should have same number of files');
         done();
       });
     });

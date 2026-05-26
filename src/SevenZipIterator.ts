@@ -55,7 +55,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
   constructor(source: string | NodeJS.ReadableStream, options: ExtractOptions = {}) {
     super(options);
     this.lock = new Lock();
-    this.lock.onDestroy = (err) => BaseIterator.prototype.end.call(this, err);
+    this.lock.onDestroy = (err: Error | null) => BaseIterator.prototype.end.call(this, err ?? undefined);
     const queue = new Queue(1);
     let cancelled = false;
     let archiveSource: ArchiveSource | null = null;
@@ -79,8 +79,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
             if (err) return cb(err);
 
             archiveSource = new FileSource(fd, stats.size);
-            // Register cleanup for file descriptor
-            this.lock.registerCleanup(() => {
+            (this.lock as Lock).registerCleanup(() => {
               fs.closeSync(fd);
             });
             cb();
@@ -91,7 +90,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
       // Stream input - write to temp file for random access
       // Register cleanup for source stream
       const stream = source as NodeJS.ReadableStream;
-      this.lock.registerCleanup(() => {
+      (this.lock as Lock).registerCleanup(() => {
         const s = stream as NodeJS.ReadableStream & { destroy?: () => void };
         if (typeof s.destroy === 'function') s.destroy();
       });
@@ -105,13 +104,11 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
 
           archiveSource = result.source;
 
-          // Register cleanup for file descriptor
-          this.lock.registerCleanup(() => {
+          (this.lock as Lock).registerCleanup(() => {
             fs.closeSync(result.fd);
           });
 
-          // Register cleanup for temp file
-          this.lock.registerCleanup(() => {
+          (this.lock as Lock).registerCleanup(() => {
             try {
               rmSync(result.tempPath);
             } catch (_e) {
@@ -148,7 +145,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
     queue.await((err?: Error) => {
       this.processing.remove(setup);
       if (this.done || cancelled) return;
-      err ? this.end(err) : this.push(nextEntry);
+      err ? this.end(err) : this.push(nextEntry as unknown as Parameters<typeof this.push>[0]);
     });
   }
 
@@ -156,7 +153,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
     if (this.lock) {
       const lock = this.lock;
       this.lock = null; // Clear before release to prevent re-entrancy
-      lock.err = err;
+      lock.err = err ?? null;
       lock.release();
     }
     // Don't call base end here - Lock.__destroy() handles it

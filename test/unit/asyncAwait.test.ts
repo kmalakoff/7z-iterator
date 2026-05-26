@@ -1,4 +1,4 @@
-import SevenZipIterator from '7z-iterator';
+import SevenZipIterator, { type Entry, type ExtractOptions } from '7z-iterator';
 import assert from 'assert';
 import { safeRm } from 'fs-remove-compat';
 import mkdirp from 'mkdirp-classic';
@@ -7,18 +7,18 @@ import Pinkie from 'pinkie-promise';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
 import validateFiles from '../lib/validateFiles.ts';
 
-async function extract(iterator, dest, options) {
+async function extract(iterator: SevenZipIterator, dest: string, options: ExtractOptions): Promise<void> {
   let value = await iterator.next();
   while (!value.done) {
-    const entry = value.value;
+    const entry = value.value as Entry;
     await entry.create(dest, options);
     value = await iterator.next();
   }
 }
 
-async function extractForEach(iterator, dest, options) {
+async function extractForEach(iterator: SevenZipIterator, dest: string, options: ExtractOptions & { concurrency?: number }): Promise<void> {
   await iterator.forEach(
-    async (entry) => {
+    async (entry: Entry) => {
       await entry.create(dest, options);
     },
     { concurrency: options.concurrency }
