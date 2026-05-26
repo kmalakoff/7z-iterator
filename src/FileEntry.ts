@@ -5,6 +5,7 @@
  * API consistent with zip-iterator and tar-iterator.
  */
 
+import type { CallFn } from 'call-once-fn';
 import once from 'call-once-fn';
 import { type FileAttributes, FileEntry, type Lock, type NoParamCallback, waitForAccess } from 'extract-base-iterator';
 import fs from 'graceful-fs';
@@ -12,8 +13,8 @@ import oo from 'on-one';
 import type { ExtractOptions } from './types.ts';
 
 export default class SevenZipFileEntry extends FileEntry {
-  private lock: Lock;
-  private stream: NodeJS.ReadableStream;
+  private lock: Lock | null;
+  private stream: NodeJS.ReadableStream | null;
 
   /**
    * Whether this entry's folder supports streaming decompression.
@@ -36,15 +37,17 @@ export default class SevenZipFileEntry extends FileEntry {
     options = typeof options === 'function' ? {} : ((options || {}) as ExtractOptions);
 
     if (typeof callback === 'function') {
-      return FileEntry.prototype.create.call(this, dest, options, (err?: Error) => {
-        callback(err);
+      const cb: NoParamCallback = (err?: Error) => {
+        (callback as NoParamCallback)(err);
         if (this.lock) {
           this.lock.release();
           this.lock = null;
         }
-      });
+      };
+      super.create(dest, options as ExtractOptions, cb);
+      return;
     }
-    return new Promise((resolve, reject) => this.create(dest, options, (err?: Error, done?: boolean) => (err ? reject(err) : resolve(done))));
+    return new Promise((resolve, reject) => this.create(dest, options as ExtractOptions, (err?: Error) => (err ? reject(err) : resolve(true))));
   }
 
   _writeFile(fullPath: string, _options: ExtractOptions, callback: NoParamCallback): void {
@@ -56,10 +59,9 @@ export default class SevenZipFileEntry extends FileEntry {
     const stream = this.stream;
     this.stream = null; // Prevent reuse
 
-    // Use once since errors can come from either stream
-    const cb = once((err?: Error) => {
+    const cb = once(((err?: Error) => {
       err ? callback(err) : waitForAccess(fullPath, callback);
-    });
+    }) as unknown as CallFn) as unknown as (err?: Error) => void;
 
     try {
       const writeStream = fs.createWriteStream(fullPath);
@@ -80,14 +82,14 @@ export default class SevenZipFileEntry extends FileEntry {
 
       // Pipe and listen for write stream completion/errors
       stream.pipe(writeStream);
-      oo(writeStream, ['error', 'close', 'finish'], cb);
+      oo(writeStream, ['error', 'close', 'finish'], cb as unknown as CallFn);
     } catch (pipeErr) {
-      cb(pipeErr);
+      cb(pipeErr as Error);
     }
   }
 
   destroy() {
-    FileEntry.prototype.destroy.call(this);
+    super.destroy();
     if (this.stream) {
       // Use destroy() to prevent decompression (our stream has custom destroy that sets destroyed flag)
       // Fallback to resume() for older Node versions without destroy()

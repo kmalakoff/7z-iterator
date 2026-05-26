@@ -1,7 +1,7 @@
 // Streaming decompression tests (Phase 1)
 // Tests for the new streaming decompression infrastructure
 
-import SevenZipIterator, { type FileEntry } from '7z-iterator';
+import SevenZipIterator, { type Entry, type FileEntry } from '7z-iterator';
 import assert from 'assert';
 import fs from 'fs';
 import { safeRm } from 'fs-remove-compat';
@@ -46,7 +46,7 @@ describe('streaming', () => {
       const entries: { path: string; _canStream: boolean }[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           if (isStreamableFileEntry(entry)) {
             entries.push({ path: entry.path, _canStream: entry._canStream });
           }
@@ -68,7 +68,7 @@ describe('streaming', () => {
       const entries: { path: string; _canStream: boolean }[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           if (isStreamableFileEntry(entry)) {
             entries.push({ path: entry.path, _canStream: entry._canStream });
           }
@@ -90,7 +90,7 @@ describe('streaming', () => {
       const entries: { path: string; _canStream: boolean }[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           if (isStreamableFileEntry(entry)) {
             entries.push({ path: entry.path, _canStream: entry._canStream });
           }
@@ -113,7 +113,7 @@ describe('streaming', () => {
       const entries: { path: string; _canStream: boolean }[] = [];
 
       iterator.forEach(
-        (entry): void => {
+        (entry: Entry): void => {
           if (isStreamableFileEntry(entry)) {
             entries.push({ path: entry.path, _canStream: entry._canStream });
           }
