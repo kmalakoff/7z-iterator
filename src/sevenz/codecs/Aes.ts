@@ -184,7 +184,6 @@ export function decodeAes(input: Buffer, properties?: Buffer, _unpackSize?: numb
 
   // Node 0.8 returns binary strings, newer Node returns Buffers
   // Use 'binary' encoding for compatibility
-  // @ts-expect-error - 'binary' encoding is deprecated but required for Node 0.8 compatibility
   const decStr = decipher.update(input, 'binary', 'binary') + decipher.final('binary');
   const decrypted = bufferFrom(decStr, 'binary' as BufferEncoding);
 
