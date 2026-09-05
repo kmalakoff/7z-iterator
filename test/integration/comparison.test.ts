@@ -11,7 +11,7 @@ import assert from 'assert';
 import { exec } from 'child_process';
 import fs from 'fs';
 import Iterator, { type Entry as FSEntry } from 'fs-iterator';
-import { rmSync } from 'fs-remove-compat';
+import { safeRmSync } from 'fs-remove-compat';
 import getFile from 'get-file-compat';
 import path from 'path';
 import { TMP_DIR } from '../lib/constants.ts';
@@ -78,7 +78,7 @@ function collectStats(dirPath: string, callback: (err: Error | null, stats?: Rec
  */
 function removeDir(dirPath: string): void {
   if (fs.existsSync(dirPath)) {
-    rmSync(dirPath, { recursive: true, force: true });
+    safeRmSync(dirPath, { recursive: true, force: true });
   }
 }
 
