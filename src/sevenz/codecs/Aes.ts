@@ -182,10 +182,10 @@ export function decodeAes(input: Buffer, properties?: Buffer, _unpackSize?: numb
   const decipher = crypto.createDecipheriv('aes-256-cbc', key, params.iv);
   decipher.setAutoPadding(false); // 7z doesn't use PKCS7 padding
 
-  // Node 0.8 returns binary strings, newer Node returns Buffers
-  // Use 'binary' encoding for compatibility
-  const decStr = decipher.update(input, 'binary', 'binary') + decipher.final('binary');
-  const decrypted = bufferFrom(decStr, 'binary' as BufferEncoding);
+  // Node 0.8 cipher methods return binary strings when no output encoding
+  // is given, so always request string output and convert back to a Buffer
+  const decStr = decipher.update(input.toString('binary'), 'binary', 'binary') + decipher.final('binary');
+  const decrypted = bufferFrom(decStr, 'binary');
 
   return decrypted;
 }

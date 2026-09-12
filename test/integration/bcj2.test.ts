@@ -6,7 +6,7 @@
  * the multi-byte number decoding. This tests the fix for the varint parsing bug.
  *
  * Uses Node.js Windows distribution as a real-world BCJ2 test case.
- * The archive is downloaded and cached in .tmp/fixtures on first run.
+ * The archive is downloaded and cached in .tmp/cache on first run.
  */
 import SevenZipIterator, { type Entry } from '7z-iterator';
 import assert from 'assert';
@@ -19,13 +19,20 @@ import { stringEndsWith } from '../lib/compat.ts';
 import { ensureFixture, getFixturePath } from '../lib/download.ts';
 
 // Node.js Windows x64 7z archive - uses LZMA2:26 LZMA:20 BCJ2 codecs
-const NODE_7Z_URL = 'https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.7z';
 const NODE_7Z_FILENAME = 'node-v22.12.0-win-x64.7z';
+const NODE_7Z = {
+  url: 'https://nodejs.org/dist/v22.12.0/node-v22.12.0-win-x64.7z',
+  filename: NODE_7Z_FILENAME,
+  version: 'Node.js v22.12.0 Windows x64 distribution',
+  license: 'Node.js MIT license',
+  provenance: 'Official Node.js distribution at nodejs.org/dist/v22.12.0',
+  sha256: '922285593360adbe1fcd16d4e0049a13552dcad085fa53768c21c8d17089a134',
+};
 const _EXPECTED_ENTRY_COUNT = 2721; // Number of entries in the archive
 
 describe('BCJ2 archives (large varints)', () => {
   // Download the fixture before running tests (cached after first download)
-  before(ensureFixture(NODE_7Z_URL, NODE_7Z_FILENAME));
+  before(ensureFixture(NODE_7Z));
 
   describe('Node.js Windows 7z', () => {
     it('should iterate BCJ2 archive entries', (done) => {
