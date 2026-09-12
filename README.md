@@ -1,170 +1,75 @@
-## 7z-iterator
+# 7z-iterator
 
-Extract contents from 7z archive type using an iterator API using streams or paths. Use stream interface and pipe transforms to add decompression algorithms.
+Read entries from a 7z archive with an async iterator, promises, callbacks, or a readable stream. Sources can be archive paths or readable streams.
 
-// asyncIterator
+## Install
 
-```js
-var assert = require('assert');
-var fs = require('fs');
-var SevenZipIterator = require('7z-iterator');
-
-(async function() {
-  let iterator = new SevenZipIterator('/path/to/archive');
-
-  try {
-    const links = [];
-    for await (const entry of iterator) {
-      if (entry.type === 'link') links.unshift(entry);
-      else if (entry.type === 'symlink') links.push(entry);
-      else await entry.create(dest, options);
-    }
-
-    // create links after directories and files
-    for (const entry of links) await entry.create(dest, options);
-  } catch (err) {
-    }
-
-  iterator.destroy();
-  iterator = null;
-})();
-
-(async function() {
-  let iterator = new SevenZipIterator(fs.createReadStream('/path/to/archive'));
-
-  try {
-    const links = [];
-    for await (const entry of iterator) {
-      if (entry.type === 'link') links.unshift(entry);
-      else if (entry.type === 'symlink') links.push(entry);
-      else await entry.create(dest, options);
-    }
-
-    // create links after directories and files
-    for (const entry of links) await entry.create(dest, options);
-  } catch (err) {
-    }
-
-  iterator.destroy();
-  iterator = null;
-})();
+```sh
+npm install 7z-iterator
 ```
 
-// Async / Await
+## Extract an archive
 
 ```js
-var assert = require('assert');
-var SevenZipIterator = require('7z-iterator');
+const SevenZipIterator = require('7z-iterator');
 
-// one by one
-(async function() {
-  let iterator = new SevenZipIterator('/path/to/archive');
-
+async function extract(archivePath, destination) {
+  const iterator = new SevenZipIterator(archivePath);
   const links = [];
-  let entry = await iterator.next();
-  while (entry) {
-    if (entry.type === 'link') links.unshift(entry);
-    else if (entry.type === 'symlink') links.push(entry);
-    else await entry.create(dest, options);
-    entry = await iterator.next();
-  }
-
-  // create links after directories and files
-  for (entry of links) {
-    await entry.create(dest, options);
-  }
-  iterator.destroy();
-  iterator = null;
-})();
-
-// infinite concurrency
-(async function() {
-  let iterator = new SevenZipIterator('/path/to/archive');
 
   try {
-    const links = [];
-    await iterator.forEach(
-      async function (entry) {
-        if (entry.type === 'link') links.unshift(entry);
-        else if (entry.type === 'symlink') links.push(entry);
-        else await entry.create(dest, options);
-      },
-      { concurrency: Infinity }
-    );
+    for await (const entry of iterator) {
+      if (entry.type === 'link') links.unshift(entry);
+      else if (entry.type === 'symlink') links.push(entry);
+      else await entry.create(destination, { strip: 1 });
+    }
 
-    // create links after directories and files
-    for (const entry of links) await entry.create(dest, options);
-  } catch (err) {
-    aseert.ok(!err);
+    // Create links after their target directories and files.
+    for (const entry of links) await entry.create(destination, { strip: 1 });
+  } finally {
+    iterator.destroy();
   }
+}
 
-  iterator.destroy();
-  iterator = null;
-})();
+extract('./archive.7z', './output').catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 ```
 
-// Callbacks
+### Callback API for older Node.js
+
+Node.js 0.8+ can use the callback form instead of `for await`:
 
 ```js
-var assert = require('assert');
-var Queue = require('queue-cb');
 var SevenZipIterator = require('7z-iterator');
-
-var iterator = new SevenZipIterator('/path/to/archive');
-
-// one by one
+var iterator = new SevenZipIterator('./archive.7z');
 var links = [];
-iterator.forEach(
-  function (entry, callback) {
-    if (entry.type === 'link') {
-      links.unshift(entry);
-      callback();
-    } else if (entry.type === 'symlink') {
-      links.push(entry);
-      callback();
-    } else entry.create(dest, options, callback);
-  },
-  { callbacks: true, concurrency: 1 },
-  function (err) {
 
-    // create links after directories and files
-    var queue = new Queue();
-    for (var index = 0; index < links.length; index++) {
-      var entry = links[index];
-      queue.defer(entry.create.bind(entry, dest, options));
-    }
-    queue.await(callback);
+function createLinks(index, callback) {
+  if (index === links.length) return callback();
+  links[index].create('./output', { strip: 1 }, function(error) {
+    if (error) return callback(error);
+    createLinks(index + 1, callback);
+  });
+}
 
+iterator.forEach(function(entry, callback) {
+  if (entry.type === 'link') { links.unshift(entry); callback(); }
+  else if (entry.type === 'symlink') { links.push(entry); callback(); }
+  else entry.create('./output', { strip: 1 }, callback);
+}, { callbacks: true, concurrency: 1 }, function(error) {
+  if (error) throw error;
+  createLinks(0, function(error) {
     iterator.destroy();
-    iterator = null;
-  }
-);
+    if (error) throw error;
+    console.log('Extraction complete');
+  });
+});
 ```
+
+`entry.create(destination, options)` writes a file, directory, or link. Use `{ force: true }` to overwrite existing entries. Pass an archive password to the iterator constructor, for example `new SevenZipIterator(archivePath, { password: 'secret' })`. A readable stream source is buffered to a temporary file because 7z parsing needs random access.
 
 ## Limitations
 
-### Node.js Version Compatibility
-
-This library supports Node.js 0.8+ but has memory limits on older versions:
-
-| Node.js Version | Maximum Single Buffer | Notes |
-|-----------------|----------------------|-------|
-| 0.8 - 4.x | ~1073 MB (0x3fffffff) | Hard limit due to kMaxLength |
-| 6.x - 7.x | ~1073 MB | Uint8Array limit |
-| 8.x - 9.x | ~2 GB | Buffer limit |
-| 10+ | ~2.1 GB (2^31-1) | Buffer.allocUnsafe limit |
-
-### LZMA1 vs LZMA2
-
-- **LZMA2**: Streams incrementally, memory efficient, works on all Node versions
-- **LZMA1**: Requires loading entire folder into memory before decompression. Fails on archives with folders larger than the buffer limit above.
-
-### Archive Size Limits by Node Version
-
-| Archive Type | Node 0.8-4.x | Node 6+ | Node 8+ | Node 10+ |
-|--------------|--------------|---------|---------|----------|
-| Small archives (< 1GB) | Works | Works | Works | Works |
-| LZMA2 archives (> 1GB) | Fails | Fails | Works | Works |
-| LZMA1 archives (> 1GB) | Fails | Fails | Fails | Fails |
-
-For large LZMA1 archives, use Node 8+ or re-archive using LZMA2 format.
+Node.js 0.8+ is supported, but older releases have smaller maximum `Buffer` sizes. LZMA1 folders must fit in one buffer; LZMA2 can stream incrementally and is preferred for large archives. On Node.js 0.8-4.x, archives larger than about 1 GB cannot be processed reliably.
