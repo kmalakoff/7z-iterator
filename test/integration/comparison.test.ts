@@ -11,15 +11,22 @@ import assert from 'assert';
 import { exec } from 'child_process';
 import fs from 'fs';
 import Iterator, { type Entry as FSEntry } from 'fs-iterator';
-import { rmSync } from 'fs-remove-compat';
-import getFile from 'get-file-compat';
+import { safeRmSync } from 'fs-remove-compat';
 import path from 'path';
 import { TMP_DIR } from '../lib/constants.ts';
+import { ensureFixture, getFixturePath } from '../lib/download.ts';
 
 // Test configuration
-const ARCHIVE_URL = 'https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.7z';
-const CACHE_DIR = path.join(process.cwd(), '.cache');
-const CACHE_PATH = path.join(CACHE_DIR, 'node-v24.12.0-win-x64.7z');
+const ARCHIVE_FILENAME = 'node-v24.12.0-win-x64.7z';
+const ARCHIVE = {
+  url: 'https://nodejs.org/dist/v24.12.0/node-v24.12.0-win-x64.7z',
+  filename: ARCHIVE_FILENAME,
+  version: 'Node.js v24.12.0 Windows x64 distribution',
+  license: 'Node.js MIT license',
+  provenance: 'Official Node.js distribution at nodejs.org/dist/v24.12.0',
+  sha256: '8d41356abf5cb62404f311f131b7937f45aaeda5c15d060dc281c2ece817cdce',
+};
+const CACHE_PATH = getFixturePath(ARCHIVE_FILENAME);
 const SEVENZIP_EXTRACT_DIR = path.join(TMP_DIR, 'sevenzip');
 const ITERATOR_EXTRACT_DIR = path.join(TMP_DIR, '7z-iterator');
 
@@ -78,7 +85,7 @@ function collectStats(dirPath: string, callback: (err: Error | null, stats?: Rec
  */
 function removeDir(dirPath: string): void {
   if (fs.existsSync(dirPath)) {
-    rmSync(dirPath, { recursive: true, force: true });
+    safeRmSync(dirPath, { recursive: true, force: true });
   }
 }
 
@@ -112,24 +119,10 @@ describe('Comparison - 7z-iterator vs native sevenzip', () => {
         return;
       }
 
-      // Ensure .cache directory exists
-      if (!fs.existsSync(CACHE_DIR)) {
-        fs.mkdirSync(CACHE_DIR, { recursive: true });
-      }
-
-      // Download archive if it doesn't exist
-      if (!fs.existsSync(CACHE_PATH)) {
-        console.log(`Downloading ${ARCHIVE_URL}...`);
-        getFile(ARCHIVE_URL, CACHE_PATH, (err) => {
-          if (err) return done(err);
-
-          console.log('Download complete');
-          startExtraction();
-        });
-      } else {
-        console.log('Using cached archive file');
+      ensureFixture(ARCHIVE)((err) => {
+        if (err) return done(err);
         startExtraction();
-      }
+      });
     });
 
     function startExtraction(): void {

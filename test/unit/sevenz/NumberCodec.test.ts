@@ -1,6 +1,6 @@
 import assert from 'assert';
 import { bufferFrom } from 'extract-base-iterator';
-import { encodedSize, readDefinedVector, readNumber, readNumberArray } from '../../src/sevenz/NumberCodec.ts';
+import { encodedSize, readDefinedVector, readNumber, readNumberArray } from '../../../src/sevenz/NumberCodec.ts';
 
 describe('NumberCodec', () => {
   describe('readNumber', () => {
