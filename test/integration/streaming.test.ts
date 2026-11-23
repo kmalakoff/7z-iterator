@@ -9,10 +9,46 @@ import { safeRm } from 'fs-remove-compat';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
 import Pinkie from 'pinkie-promise';
-import { defer } from '../../src/lib/defer.ts';
+import { defer } from '../../src/compat.ts';
 import { BufferSource, FileSource, type SevenZipEntry, SevenZipParser } from '../../src/sevenz/index.ts';
 import { arrayFind } from '../lib/compat.ts';
 import { DATA_DIR, TARGET } from '../lib/constants.ts';
+
+// Calls back once the event loop has turned the given number of times
+function turns(count: number, callback: () => void) {
+  if (count <= 0) return callback();
+  defer(() => turns(count - 1, callback));
+}
+
+// Collects the bytes and the order of 'error', 'end' and 'finish'. Calls back on the first 'error' or 'end', after a few loop turns
+// so any event that follows it is recorded too: Node 12 and older emit nothing after 'end' (no 'close'), so there is no later event to wait for.
+function collect(stream: NodeJS.ReadableStream, callback: (result: { data: Buffer; events: string[]; error?: Error & { code?: string } }) => void) {
+  const chunks: Buffer[] = [];
+  const events: string[] = [];
+  let error: (Error & { code?: string }) | undefined;
+  let settling = false;
+  const settle = () => {
+    if (settling) return;
+    settling = true;
+    turns(3, () => callback({ data: Buffer.concat(chunks), events, error }));
+  };
+  stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+  stream.on('finish', () => events.push('finish'));
+  stream.on('end', () => {
+    events.push('end');
+    settle();
+  });
+  stream.on('error', (err: Error) => {
+    events.push('error');
+    if (!error) error = err;
+    settle();
+  });
+}
+
+// An error is reported once, and the stream neither finishes nor ends before or after it
+function assertOnlyError(events: string[]) {
+  assert.strictEqual(events.join(','), 'error', 'Should report one error and nothing else');
+}
 
 // Helper to check if entry is a FileEntry with _canStream
 function isStreamableFileEntry(entry: { type: string; _canStream?: boolean }): entry is FileEntry & { _canStream: boolean } {
@@ -279,42 +315,6 @@ describe('streaming', () => {
     function openFile(name: string): FileSource {
       const archivePath = path.join(DATA_DIR, name);
       return new FileSource(fs.openSync(archivePath, 'r'), fs.statSync(archivePath).size);
-    }
-
-    // Calls back once the event loop has turned the given number of times
-    function turns(count: number, callback: () => void) {
-      if (count <= 0) return callback();
-      defer(() => turns(count - 1, callback));
-    }
-
-    // Collects the bytes and the order of 'error', 'end' and 'finish'. Calls back on the first 'error' or 'end', after a few loop turns
-    // so any event that follows it is recorded too: Node 12 and older emit nothing after 'end' (no 'close'), so there is no later event to wait for.
-    function collect(stream: NodeJS.ReadableStream, callback: (result: { data: Buffer; events: string[]; error?: Error & { code?: string } }) => void) {
-      const chunks: Buffer[] = [];
-      const events: string[] = [];
-      let error: (Error & { code?: string }) | undefined;
-      let settling = false;
-      const settle = () => {
-        if (settling) return;
-        settling = true;
-        turns(3, () => callback({ data: Buffer.concat(chunks), events, error }));
-      };
-      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      stream.on('finish', () => events.push('finish'));
-      stream.on('end', () => {
-        events.push('end');
-        settle();
-      });
-      stream.on('error', (err: Error) => {
-        events.push('error');
-        if (!error) error = err;
-        settle();
-      });
-    }
-
-    // An error is reported once, and the stream neither finishes nor ends before or after it
-    function assertOnlyError(events: string[]) {
-      assert.strictEqual(events.join(','), 'error', 'Should report one error and nothing else');
     }
 
     // Success is reported as one 'end', with no error
@@ -1048,6 +1048,325 @@ describe('streaming', () => {
               done(err);
             });
         }
+      });
+    });
+
+    function openTempCorrupted(fixtureName: string, offset: number): FileSource {
+      const buf = fs.readFileSync(path.join(DATA_DIR, fixtureName));
+      buf[offset] = buf[offset] ^ 0xff;
+      const tmpFile = path.join(TARGET, `corrupt-${offset}-${fixtureName}`);
+      fs.writeFileSync(tmpFile, buf);
+      return new FileSource(fs.openSync(tmpFile, 'r'), buf.length);
+    }
+
+    it('should report only error on buffered getEntryStream for corrupted solid-bzip2.7z', (done) => {
+      const parser = new SevenZipParser(openTempCorrupted('solid-bzip2.7z', 92));
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          return done(parseErr);
+        }
+        const files = parser.getEntries().filter((e) => e.type === 'file');
+        let pending = files.length;
+        for (let i = 0; i < files.length; i++) {
+          const stream = parser.getEntryStream(files[i]);
+          collect(stream, (result) => {
+            assert.ok(result.error, 'Should emit error');
+            assertOnlyError(result.events);
+            if (--pending === 0) {
+              parser.close();
+              done();
+            }
+          });
+        }
+      });
+    });
+
+    it('should report only error on buffered getEntryStream for corrupted lzma1.7z', (done) => {
+      const parser = new SevenZipParser(openTempCorrupted('lzma1.7z', 40));
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          return done(parseErr);
+        }
+        const files = parser.getEntries().filter((e) => e.type === 'file');
+        const stream = parser.getEntryStream(files[0]);
+        collect(stream, (result) => {
+          parser.close();
+          assert.ok(result.error, 'Should emit error');
+          assertOnlyError(result.events);
+          done();
+        });
+      });
+    });
+
+    describe('buffered consumer throw isolation', () => {
+      let restoreListeners: (() => void) | null = null;
+
+      afterEach(() => {
+        if (restoreListeners) {
+          restoreListeners();
+          restoreListeners = null;
+        }
+      });
+
+      it('should surface throwing consumer data listener as uncaughtException without emitting stream error', (done) => {
+        const archivePath = path.join(DATA_DIR, 'solid-bzip2.7z');
+        const parser = new SevenZipParser(new FileSource(fs.openSync(archivePath, 'r'), fs.statSync(archivePath).size));
+        parser.parse((parseErr) => {
+          if (parseErr) {
+            parser.close();
+            return done(parseErr);
+          }
+          const files = parser.getEntries().filter((e) => e.type === 'file');
+          const prev = process.listeners('uncaughtException').slice();
+          const caught: Error[] = [];
+          const streamErrors: Error[] = [];
+          let finished = false;
+
+          const onUncaught = (err: Error) => {
+            caught.push(err);
+          };
+
+          const restore = () => {
+            if (!restoreListeners) return;
+            restoreListeners = null;
+            process.removeListener('uncaughtException', onUncaught);
+            for (let i = 0; i < prev.length; i++) {
+              process.on('uncaughtException', prev[i] as NodeJS.UncaughtExceptionListener);
+            }
+          };
+          restoreListeners = restore;
+
+          const finish = (err?: Error) => {
+            if (finished) return;
+            finished = true;
+            restore();
+            parser.close();
+            done(err);
+          };
+
+          process.removeAllListeners('uncaughtException');
+          process.on('uncaughtException', onUncaught);
+
+          const stream = parser.getEntryStream(files[0]);
+          stream.on('error', (err: Error) => {
+            streamErrors.push(err);
+            turns(2, () => {
+              finish(new Error(`Unexpected stream error event: ${err.message}`));
+            });
+          });
+          stream.on('data', () => {
+            throw new Error('consumer-in-data');
+          });
+
+          const checkUncaught = () => {
+            if (finished) return;
+            if (caught.length > 0) {
+              turns(2, () => {
+                try {
+                  assert.strictEqual(caught.length, 1);
+                  assert.strictEqual(caught[0].message, 'consumer-in-data');
+                  assert.strictEqual(streamErrors.length, 0, 'Should emit 0 stream error events');
+                  finish();
+                } catch (assertErr) {
+                  finish(assertErr as Error);
+                }
+              });
+              return;
+            }
+            defer(checkUncaught);
+          };
+          checkUncaught();
+        });
+      });
+    });
+
+    // Fixture recipe (test/data/solid-bcj-lzma2.7z): 7z a -m0=BCJ -m1=LZMA2 -ms=on -mtm=off -mtc=off -mta=off solid-bcj-lzma2.7z f1.txt f2.txt f3.txt
+    // where f<n>.txt has 4000 lines 'line ' + i + ' file ' + n + '\n' for n = 1..3.
+    it('should report middle-stage error to all solid entries without crashing', (done) => {
+      const parser = new SevenZipParser(openTempCorrupted('solid-bcj-lzma2.7z', 100));
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          return done(parseErr);
+        }
+        const files = parser.getEntries().filter((e) => e.type === 'file');
+        files.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        assert.strictEqual(files.length, 3);
+        let pending = files.length;
+
+        for (let i = 0; i < files.length; i++) {
+          parser
+            .getEntryStreamStreaming(files[i])
+            .then((stream) => {
+              collect(stream, (result) => {
+                assert.ok(result.error, 'Each entry should receive error');
+                assertOnlyError(result.events);
+                if (--pending === 0) {
+                  parser.close();
+                  done();
+                }
+              });
+            })
+            .catch((err) => {
+              parser.close();
+              done(err);
+            });
+        }
+      });
+    });
+
+    it('should report single-stage solid error to all entries instead of ending short', (done) => {
+      const parser = new SevenZipParser(openTempCorrupted('solid-bzip2.7z', 92));
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          return done(parseErr);
+        }
+        const files = parser.getEntries().filter((e) => e.type === 'file');
+        files.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        assert.strictEqual(files.length, 3);
+        let pending = files.length;
+
+        for (let i = 0; i < files.length; i++) {
+          parser
+            .getEntryStreamStreaming(files[i])
+            .then((stream) => {
+              collect(stream, (result) => {
+                assert.ok(result.error, 'Each entry should receive error');
+                assertOnlyError(result.events);
+                if (--pending === 0) {
+                  parser.close();
+                  done();
+                }
+              });
+            })
+            .catch((err) => {
+              parser.close();
+              done(err);
+            });
+        }
+      });
+    });
+
+    it('should not crash on unrequested entries when solid folder fails and should error later requests', (done) => {
+      const parser = new SevenZipParser(openTempCorrupted('solid-bzip2.7z', 92));
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          return done(parseErr);
+        }
+        const files = parser.getEntries().filter((e) => e.type === 'file');
+        files.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        assert.strictEqual(files.length, 3);
+
+        parser
+          .getEntryStreamStreaming(files[0])
+          .then((stream0) => {
+            collect(stream0, (result0) => {
+              assert.ok(result0.error, 'First entry should receive error');
+              assertOnlyError(result0.events);
+              parser
+                .getEntryStreamStreaming(files[1])
+                .then((stream1) => {
+                  collect(stream1, (result1) => {
+                    parser.close();
+                    assert.ok(result1.error, 'Later requested entry should also receive error');
+                    assertOnlyError(result1.events);
+                    done();
+                  });
+                })
+                .catch((err) => {
+                  parser.close();
+                  done(err);
+                });
+            });
+          })
+          .catch((err) => {
+            parser.close();
+            done(err);
+          });
+      });
+    });
+
+    // Fixture recipe (test/data/solid-large-output-deflate.7z): 7z a -m0=deflate -ms=on -mtm=off -mtc=off -mta=off solid-large-output-deflate.7z file1.txt file2.txt file3.txt
+    // where file<n>.txt has 120000 lines 'line ' + (i % 1000) + ' f' + n + '\n' for n = 1..3.
+    it('should not pile up drain listeners on solid streaming with a slow consumer', (done) => {
+      const warnings: string[] = [];
+      const onWarning = (warning: Error) => {
+        if (warning.name === 'MaxListenersExceededWarning') warnings.push(warning.message);
+      };
+      process.on('warning', onWarning);
+
+      const archivePath = path.join(DATA_DIR, 'solid-large-output-deflate.7z');
+      const parser = new SevenZipParser(new FileSource(fs.openSync(archivePath, 'r'), fs.statSync(archivePath).size));
+      parser.parse((parseErr) => {
+        if (parseErr) {
+          parser.close();
+          process.removeListener('warning', onWarning);
+          return done(parseErr);
+        }
+        const files = parser.getEntries().filter((e) => e.type === 'file');
+        files.sort((a, b) => a._streamIndexInFolder - b._streamIndexInFolder);
+        assert.strictEqual(files.length, 3);
+
+        let maxDrain = 0;
+        let pending = files.length;
+        const received: number[] = [0, 0, 0];
+
+        const openAll = (idx: number, streams: NodeJS.ReadableStream[]) => {
+          if (idx >= files.length) {
+            // Delay consumption so decoder fills splitter buffers
+            turns(50, () => {
+              for (let s = 0; s < streams.length; s++) {
+                maxDrain = Math.max(maxDrain, streams[s].listeners('drain').length);
+                const fileIdx = s;
+                const stream = streams[s];
+                const slow = new Writable({ highWaterMark: 1 });
+                slow._write = (chunk: Buffer, _encoding: string, callback: (err?: Error) => void) => {
+                  received[fileIdx] += chunk.length;
+                  maxDrain = Math.max(maxDrain, stream.listeners('drain').length);
+                  defer(callback);
+                };
+                stream.on('error', (err) => {
+                  parser.close();
+                  process.removeListener('warning', onWarning);
+                  done(err);
+                });
+                slow.on('finish', () => {
+                  if (--pending === 0) {
+                    parser.close();
+                    turns(2, () => {
+                      process.removeListener('warning', onWarning);
+                      for (let j = 0; j < files.length; j++) {
+                        assert.strictEqual(received[j], files[j].size, `Full bytes for file ${j}`);
+                      }
+                      assert.strictEqual(warnings.join('; '), '', 'Should not warn about listeners');
+                      assert.ok(maxDrain <= 2, `drain listeners should stay bounded, saw ${maxDrain}`);
+                      done();
+                    });
+                  }
+                });
+                stream.pipe(slow);
+              }
+            });
+            return;
+          }
+          parser
+            .getEntryStreamStreaming(files[idx])
+            .then((stream) => {
+              streams.push(stream);
+              openAll(idx + 1, streams);
+            })
+            .catch((err) => {
+              parser.close();
+              process.removeListener('warning', onWarning);
+              done(err);
+            });
+        };
+
+        openAll(0, []);
       });
     });
   });

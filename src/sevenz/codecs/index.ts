@@ -26,6 +26,7 @@ import {
   decodeBcjSparc,
   decodeDelta,
 } from 'xz-compat';
+import { defer } from '../../compat.ts';
 import { CodecId, createCodedError, ErrorCode } from '../constants.ts';
 import { createAesDecoder, decodeAes, getPassword, setPassword } from './Aes.ts';
 import { createBcj2Decoder, decodeBcj2, decodeBcj2Multi } from './Bcj2.ts';
@@ -36,18 +37,19 @@ import { createDeflateDecoder, decodeDeflate } from './Deflate.ts';
 // Re-export password functions for API access
 export { getPassword, setPassword };
 
-const schedule = typeof setImmediate === 'function' ? setImmediate : (fn: () => void) => process.nextTick(fn);
-
 function wrapSyncDecode(fn: (input: Buffer, properties?: Buffer, unpackSize?: number) => Buffer): Codec['decode'] {
   return (input, properties, unpackSize, callback) => {
-    schedule(() => {
+    defer(() => {
+      let result: Buffer;
       try {
         // Convert BufferList to Buffer if needed (these simpler decoders need contiguous memory)
         const buf = Buffer.isBuffer(input) ? input : input.toBuffer();
-        callback(null, fn(buf, properties, unpackSize));
+        result = fn(buf, properties, unpackSize);
       } catch (err) {
         callback(err as Error);
+        return;
       }
+      callback(null, result);
     });
   };
 }

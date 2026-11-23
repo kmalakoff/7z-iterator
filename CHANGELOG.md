@@ -2,6 +2,20 @@
 
 All notable changes to 7z-iterator are documented here.
 
+## [2.2.15] - 2026-11-23
+
+### Fixed
+
+- Failed entry extraction now closes the output file before reporting an error, so Windows can clean up the file on Node 0.10 and 0.12.
+- Cancelling or failing a stream-backed `SevenZipIterator` mid-copy no longer leaks a temp file or open file descriptor, and stream-to-temp copying now honours write backpressure.
+- Solid (multi-file) folders through `getEntryStreamStreaming` now report folder and middle-stage decoder errors to open and subsequent entry streams instead of crashing uncaught or ending entries short with 0 bytes, and a slow consumer no longer piles up `drain` listeners or triggers `MaxListenersExceededWarning`.
+- Buffered entries through `getEntryStream` now report a single `error` without trailing `finish`/`end` on Node 0.8–0.12 and Node 8, and consumer `'data'` listener exceptions are no longer turned into stream `'error'` events.
+- `BufferSource.read()` now clamps reads past the end of the buffer on Node 0.8 instead of throwing `oob` when parsing archives with compressed headers.
+
+### Changed
+
+- Raised minimum `extract-base-iterator` dependency to `^3.5.0` and removed direct `os-shim` dependency.
+
 ## [2.2.14] - 2026-11-22
 
 ### Fixed

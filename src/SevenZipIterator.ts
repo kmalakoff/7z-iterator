@@ -1,11 +1,10 @@
-import BaseIterator, { Lock } from 'extract-base-iterator';
-import { rmSync } from 'fs-remove-compat';
+import BaseIterator, { destroyStream, Lock, tmpdir } from 'extract-base-iterator';
+import { safeRmSync } from 'fs-remove-compat';
 import fs from 'graceful-fs';
 import path from 'path';
 import Queue from 'queue-cb';
 import tempSuffix from 'temp-suffix';
-import { tmpdir } from './compat.ts';
-import streamToSource, { type SourceResult } from './lib/streamToSource.ts';
+import streamToSource, { type SourceResult, type StreamToSourceHandle } from './lib/streamToSource.ts';
 import nextEntry from './nextEntry.ts';
 import { setPassword } from './sevenz/codecs/index.ts';
 import { type ArchiveSource, FileSource, type SevenZipEntry, SevenZipParser } from './sevenz/SevenZipParser.ts';
@@ -74,7 +73,16 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
           if (statErr) return cb(statErr);
 
           fs.open(source, 'r', (err, fd) => {
-            if (this.done || cancelled) return;
+            if (this.done || cancelled) {
+              if (!err && fd !== undefined) {
+                try {
+                  fs.closeSync(fd);
+                } catch (_e) {
+                  // Already closed
+                }
+              }
+              return;
+            }
             if (err) return cb(err);
 
             archiveSource = new FileSource(fd, stats.size);
@@ -87,34 +95,48 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
       });
     } else {
       // Stream input - write to temp file for random access
-      // Register cleanup for source stream
       const stream = source as NodeJS.ReadableStream;
+      const tempPath = path.join(tmpdir(), '7z-iterator', tempSuffix('tmp.7z'));
+      let copyHandle: StreamToSourceHandle | null = null;
+      let openedFd: number | null = null;
+
       (this.lock as Lock).registerCleanup(() => {
-        const s = stream as NodeJS.ReadableStream & { destroy?: () => void };
-        if (typeof s.destroy === 'function') s.destroy();
+        destroyStream(stream);
+        if (copyHandle) copyHandle.cancel();
+        if (openedFd !== null) {
+          const fd = openedFd;
+          openedFd = null;
+          try {
+            fs.closeSync(fd);
+          } catch (_e) {
+            // Already closed
+          }
+          try {
+            safeRmSync(tempPath);
+          } catch (_e) {
+            // Already removed
+          }
+        }
       });
 
-      const tempPath = path.join(tmpdir(), '7z-iterator', tempSuffix('tmp.7z'));
       queue.defer((cb: (err?: Error | null) => void) => {
-        streamToSource(source, { tempPath }, (err?: Error | null, result?: SourceResult) => {
-          if (this.done || cancelled) return;
+        if (this.done || cancelled) return;
+        copyHandle = streamToSource(source, { tempPath }, (err?: Error | null, result?: SourceResult) => {
+          if (this.done || cancelled) {
+            if (result) {
+              try {
+                fs.closeSync(result.fd);
+              } catch (_e) {
+                // Already closed
+              }
+            }
+            return;
+          }
           if (err) return cb(err);
           if (!result) return cb(new Error('No result from streamToSource'));
 
+          openedFd = result.fd;
           archiveSource = result.source;
-
-          (this.lock as Lock).registerCleanup(() => {
-            fs.closeSync(result.fd);
-          });
-
-          (this.lock as Lock).registerCleanup(() => {
-            try {
-              rmSync(result.tempPath);
-            } catch (_e) {
-              /* ignore */
-            }
-          });
-
           cb();
         });
       });

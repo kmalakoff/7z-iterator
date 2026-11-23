@@ -20,14 +20,14 @@
 
 import type { CallFn } from 'call-once-fn';
 import once from 'call-once-fn';
-import { type BufferLike, crc32, PassThrough } from 'extract-base-iterator';
+import { type BufferLike, crc32, destroyStream, PassThrough } from 'extract-base-iterator';
 import oo from 'on-one';
 import pump from 'pump';
 import type Stream from 'stream';
-import { defer } from '../lib/defer.ts';
+import { defer } from '../compat.ts';
 import type { ArchiveSource } from './ArchiveSource.ts';
 import { type Codec, decodeBcj2Multi, getCodec, getCodecName, isBcj2Codec, isCodecSupported } from './codecs/index.ts';
-import { FolderStreamSplitter } from './FolderStreamSplitter.ts';
+import { attachSafeDestroy, FolderStreamSplitter } from './FolderStreamSplitter.ts';
 
 type Readable = Stream.Readable;
 
@@ -565,23 +565,25 @@ export class SevenZipParser {
    */
   private _getEntryStreamStreaming(entry: SevenZipEntry): Readable {
     let started = false;
-    let destroyed = false;
     let chain: ReturnType<typeof this._pipeFolder> | null = null;
 
     const stream = new PassThrough();
+    const isDestroyed = attachSafeDestroy(stream, () => {
+      if (chain) chain.destroy();
+    });
 
     const originalRead = stream._read.bind(stream);
     stream._read = (size: number) => {
-      if (!started && !destroyed) {
+      if (!started && !isDestroyed()) {
         started = true;
         defer(() => {
-          if (destroyed) return;
+          if (isDestroyed()) return;
 
           let crcValue = 0;
           const verifyCrc = entry._crc !== undefined;
           try {
             chain = this._pipeFolder(entry._folderIndex, (err) => {
-              if (destroyed) return;
+              if (isDestroyed()) return;
               if (err) {
                 stream.destroy(err);
                 return;
@@ -601,42 +603,13 @@ export class SevenZipParser {
             // pipe carries backpressure through the whole chain; the end is reported by the callback above, after the CRC check
             chain.output.pipe(stream, { end: false });
           } catch (err) {
-            if (!destroyed) {
+            if (!isDestroyed()) {
               stream.destroy(err as Error);
             }
           }
         });
       }
       return originalRead(size);
-    };
-
-    // A destroyed entry stream never ends: older readable-stream (Node 0.x) and Node 8 end a destroyed
-    // PassThrough by default, which would report 'finish' and 'end' after the 'error'.
-    (stream as unknown as { _destroy: (err: Error | null, cb: (err: Error | null) => void) => void })._destroy = (err, cb) => cb(err);
-
-    // Override destroy to clean up the folder's chain
-    // IMPORTANT: Emit error synchronously BEFORE calling original destroy.
-    // On older Node, destroy() emits 'finish' and 'end' before 'error',
-    // which causes piped streams to complete successfully before the error fires.
-    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => NodeJS.ReadableStream };
-    const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
-    let closed = false;
-    stream.once('close', () => {
-      closed = true;
-    });
-    streamWithDestroy.destroy = (err?: Error | null) => {
-      if (destroyed) return stream;
-      destroyed = true;
-      if (err) stream.emit('error', err);
-      if (chain) chain.destroy();
-      if (originalDestroy) originalDestroy();
-      // A plain destroy() reports 'close' once on every Node: Node 10+ emits it on the next tick, older Node never does
-      if (!err) {
-        process.nextTick(() => {
-          if (!closed) stream.emit('close');
-        });
-      }
-      return stream;
     };
 
     return stream;
@@ -657,14 +630,14 @@ export class SevenZipParser {
   }
 
   /**
-   * Build a single-file folder's chain: packed data → codec decoders.
+   * Build a folder's chain: packed data → codec decoders.
    * pump pipes the stages and destroys all of them when any one fails, so no stage's error goes unhandled.
    *
    * @param folderIndex - Index of folder to decompress
    * @param callback - Called once: with the first error from any stage, or with none after the output ends
    * @returns The last decoder (the folder's bytes) and a destroy that tears the chain down
    */
-  private _pipeFolder(folderIndex: number, callback: (err?: Error | null) => void): { output: Readable; destroy: () => void } {
+  private _pipeFolder(folderIndex: number, callback: (err?: Error | null, fromOutput?: boolean) => void): { output: Readable; destroy: () => void } {
     if (!this.streamsInfo) {
       throw createCodedError('No streams info available', ErrorCode.CORRUPT_HEADER);
     }
@@ -682,9 +655,9 @@ export class SevenZipParser {
     stages.unshift(this.source.createReadStream(packPos, packSize) as Stream);
 
     // Error first: each stage reports its own error before pump's teardown can end the output
-    const done = once(callback as unknown as CallFn) as unknown as (err?: Error | null) => void;
+    const done = once(callback as unknown as CallFn) as unknown as (err?: Error | null, fromOutput?: boolean) => void;
     for (let i = 0; i < stages.length - 1; i++) oo(stages[i], 'error', done as unknown as CallFn);
-    oo(output, ['error', 'end'], done as unknown as CallFn);
+    oo(output, ['error', 'end'], ((err?: Error | null) => done(err, true)) as unknown as CallFn);
     pump(stages as unknown as pump.Stream[], (err?: Error) => {
       if (err) done(err);
     });
@@ -692,10 +665,8 @@ export class SevenZipParser {
     return {
       output,
       destroy: () => {
-        // Node 4-7 streams have no destroy; ArchiveSource read streams add one (see ArchiveSource.ts)
         for (let i = 0; i < stages.length; i++) {
-          const stage = stages[i] as Stream & { destroy?: () => void };
-          if (typeof stage.destroy === 'function') stage.destroy();
+          destroyStream(stages[i]);
         }
       },
     };
@@ -712,24 +683,25 @@ export class SevenZipParser {
     const streamsInfo = this.streamsInfo;
     const folderIdx = entry._folderIndex;
     let started = false;
-    let destroyed = false;
 
     const stream = new PassThrough();
+    const isDestroyed = attachSafeDestroy(stream);
 
     const originalRead = stream._read.bind(stream);
     stream._read = (size: number) => {
-      if (!started && !destroyed) {
+      if (!started && !isDestroyed()) {
         started = true;
         defer(() => {
-          if (destroyed) return;
+          if (isDestroyed()) return;
 
           this.getDecompressedFolder(folderIdx, (err, data) => {
-            if (destroyed) return;
+            if (isDestroyed()) return;
             if (err || !data) {
               stream.destroy(err || createCodedError('Unable to decompress folder', ErrorCode.DECOMPRESSION_FAILED));
               return;
             }
 
+            let fileData: Buffer;
             try {
               let fileStart = 0;
               for (let m = 0; m < entry._streamIndexInFolder; m++) {
@@ -744,7 +716,7 @@ export class SevenZipParser {
                 return;
               }
 
-              const fileData = data.slice(fileStart, fileStart + fileSize);
+              fileData = data.slice(fileStart, fileStart + fileSize);
 
               if (entry._crc !== undefined) {
                 const actualCRC = crc32(fileData);
@@ -758,31 +730,20 @@ export class SevenZipParser {
               if (this.extractedPerFolder[folderIdx] >= this.filesPerFolder[folderIdx]) {
                 delete this.decompressedCache[folderIdx];
               }
-
-              if (!destroyed) {
-                stream.push(fileData);
-                stream.push(null);
-              }
             } catch (decodeErr) {
               stream.destroy(decodeErr as Error);
+              return;
+            }
+
+            // Push outside try so consumer 'data' listener throws surface uncaught instead of becoming stream errors
+            if (!isDestroyed()) {
+              stream.push(fileData);
+              stream.push(null);
             }
           });
         });
       }
       return originalRead(size);
-    };
-
-    // Override destroy to set destroyed flag
-    // IMPORTANT: Emit error synchronously BEFORE calling original destroy.
-    // On older Node, destroy() emits 'finish' and 'end' before 'error',
-    // which causes piped streams to complete successfully before the error fires.
-    const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => NodeJS.ReadableStream };
-    const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
-    streamWithDestroy.destroy = (err?: Error | null) => {
-      destroyed = true;
-      if (err) stream.emit('error', err);
-      if (originalDestroy) return originalDestroy();
-      return stream;
     };
 
     return stream;
@@ -1243,38 +1204,17 @@ export class SevenZipParser {
       throw createCodedError('Folder does not support streaming', ErrorCode.UNSUPPORTED_CODEC);
     }
 
-    const folder = this.streamsInfo.folders[folderIndex];
-
-    const { packPos, packSize } = this._folderPackRange(folderIndex);
-
-    // Create readable stream from packed data
-    const packedStream = this.source.createReadStream(packPos, packSize);
-
-    // Build codec pipeline
-    let stream: Readable = packedStream;
-    const decoders: Stream.Transform[] = [];
-
-    for (let i = 0; i < folder.coders.length; i++) {
-      const coderInfo = folder.coders[i];
-      const codec = getCodec(coderInfo.id);
-      const unpackSize = folder.unpackSizes[i];
-      const decoder = codec.createDecoder(coderInfo.properties, unpackSize);
-      decoders.push(decoder);
-      stream = stream.pipe(decoder);
-    }
+    const chain = this._pipeFolder(folderIndex, (err, fromOutput) => {
+      if (err && !fromOutput) chain.output.emit('error', err);
+    });
 
     return {
-      output: stream,
-      pause: () => packedStream.pause(),
-      resume: () => packedStream.resume(),
+      output: chain.output,
+      pause: () => chain.output.pause(),
+      resume: () => chain.output.resume(),
       destroy: (err?: Error | null) => {
-        // Check for destroy method existence (not available in Node 4 and earlier)
-        const ps = packedStream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => void };
-        if (typeof ps.destroy === 'function') ps.destroy(err);
-        for (let i = 0; i < decoders.length; i++) {
-          const d = decoders[i] as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => void };
-          if (typeof d.destroy === 'function') d.destroy(err);
-        }
+        if (err) destroyStream(chain.output, err);
+        chain.destroy();
       },
     };
   }
@@ -1303,7 +1243,7 @@ export class SevenZipParser {
     if (!this.canStreamFolder(folderIndex) || filesInFolder === 1) {
       return this.getEntryStream(entry);
     }
-    // Multi-file folders use FolderStreamSplitter (Phase 2)
+    // Multi-file folders use FolderStreamSplitter
     return this.getEntryStreamFromSplitter(entry);
   }
 
@@ -1314,65 +1254,75 @@ export class SevenZipParser {
   private getEntryStreamFromSplitter(entry: SevenZipEntry): Promise<Readable> {
     return new Promise((resolve, reject) => {
       const folderIndex = entry._folderIndex;
-
-      // Get or create splitter for this folder
       let splitter = this.folderSplitters[folderIndex];
+      const isNewSplitter = !splitter;
 
       if (!splitter) {
-        // Create new splitter with file sizes and CRCs
         const folderInfo = this.getFolderFileInfo(folderIndex);
-
         splitter = new FolderStreamSplitter({
           fileSizes: folderInfo.fileSizes,
           verifyCrc: true,
           expectedCrcs: folderInfo.expectedCrcs,
         });
-
         this.folderSplitters[folderIndex] = splitter;
-
-        // Start streaming the folder
-        let folderStream: ReturnType<typeof this.streamFolder>;
-        try {
-          folderStream = this.streamFolder(folderIndex);
-        } catch (err) {
-          delete this.folderSplitters[folderIndex];
-          reject(err);
-          return;
-        }
-
-        folderStream.output.on('data', (chunk: Buffer) => {
-          // Handle backpressure from splitter
-          if (!splitter?.write(chunk)) {
-            folderStream.pause();
-            splitter?.onDrain(() => {
-              folderStream.resume();
-            });
-          }
-        });
-
-        folderStream.output.on('end', () => {
-          splitter?.end();
-          delete this.folderSplitters[folderIndex];
-        });
-
-        folderStream.output.on('error', (_err: Error) => {
-          splitter?.end();
-          delete this.folderSplitters[folderIndex];
-        });
       }
 
-      // Get this entry's stream from splitter
+      let fileStream: Stream.PassThrough;
       try {
-        const fileStream = splitter.getFileStream(entry._streamIndexInFolder);
-
-        // Track extraction when stream ends
-        fileStream.on('end', () => {
-          this.extractedPerFolder[folderIndex] = (this.extractedPerFolder[folderIndex] || 0) + 1;
-        });
-
-        resolve(fileStream);
+        fileStream = splitter.getFileStream(entry._streamIndexInFolder);
       } catch (err) {
+        if (isNewSplitter) delete this.folderSplitters[folderIndex];
         reject(err);
+        return;
+      }
+
+      fileStream.on('end', () => {
+        this.extractedPerFolder[folderIndex] = (this.extractedPerFolder[folderIndex] || 0) + 1;
+      });
+
+      resolve(fileStream);
+
+      if (isNewSplitter) {
+        const activeSplitter = splitter;
+        // Start decoding on defer so Promise .then callers attach error listeners first
+        defer(() => {
+          let chain: ReturnType<typeof this._pipeFolder>;
+          try {
+            chain = this._pipeFolder(folderIndex, (err) => {
+              delete this.folderSplitters[folderIndex];
+              if (err) {
+                activeSplitter.fail(err);
+              } else {
+                activeSplitter.end();
+              }
+            });
+          } catch (err) {
+            delete this.folderSplitters[folderIndex];
+            activeSplitter.fail(err as Error);
+            return;
+          }
+
+          let paused = false;
+          chain.output.on('data', (chunk: Buffer) => {
+            if (activeSplitter.getError()) {
+              chain.destroy();
+              return;
+            }
+            const ok = activeSplitter.write(chunk);
+            if (activeSplitter.getError()) {
+              chain.destroy();
+              return;
+            }
+            if (!ok && !paused) {
+              paused = true;
+              chain.output.pause();
+              activeSplitter.onDrain(() => {
+                paused = false;
+                chain.output.resume();
+              });
+            }
+          });
+        });
       }
     });
   }

@@ -3,16 +3,40 @@
  *
  * For multi-file solid archives, the folder is decompressed as a single stream.
  * This class splits that stream into individual file streams based on known file boundaries.
- *
- * Features:
- * - Lazy stream creation (streams created on first access)
- * - Backpressure propagation (returns false when downstream is full)
- * - Running CRC verification per file
- * - Automatic cleanup of completed streams
  */
 
-import { crc32, PassThrough } from 'extract-base-iterator';
+import { crc32, destroyStream, PassThrough } from 'extract-base-iterator';
 import type Stream from 'stream';
+import { defer } from '../compat.ts';
+
+// Ensure destroyed entry streams emit one error without finish/end on Node 0.x and 8, and one close on plain destroy
+export function attachSafeDestroy(stream: Stream.PassThrough, onDestroy?: () => void): () => boolean {
+  let destroyed = false;
+
+  (stream as unknown as { _destroy: (err: Error | null, cb: (err: Error | null) => void) => void })._destroy = (err, cb) => cb(err);
+
+  const streamWithDestroy = stream as NodeJS.ReadableStream & { destroy?: (err?: Error | null) => NodeJS.ReadableStream };
+  const originalDestroy = typeof streamWithDestroy.destroy === 'function' ? streamWithDestroy.destroy.bind(stream) : null;
+  let closed = false;
+  stream.once('close', () => {
+    closed = true;
+  });
+  streamWithDestroy.destroy = (err?: Error | null) => {
+    if (destroyed) return stream;
+    destroyed = true;
+    if (err) stream.emit('error', err);
+    if (onDestroy) onDestroy();
+    if (originalDestroy) originalDestroy();
+    if (!err) {
+      process.nextTick(() => {
+        if (!closed) stream.emit('close');
+      });
+    }
+    return stream;
+  };
+
+  return () => destroyed;
+}
 
 export interface FolderStreamSplitterOptions {
   /** Sizes of each file in the folder (in order) */
@@ -25,26 +49,11 @@ export interface FolderStreamSplitterOptions {
 
 /**
  * Splits a decompressed folder stream into individual file streams.
- *
- * Usage:
- * ```
- * const splitter = new FolderStreamSplitter({ fileSizes: [1000, 2000, 500] });
- *
- * decompressStream.on('data', (chunk) => {
- *   if (!splitter.write(chunk)) {
- *     decompressStream.pause();
- *     splitter.onDrain(() => decompressStream.resume());
- *   }
- * });
- * decompressStream.on('end', () => splitter.end());
- *
- * // Get stream for file at index 1 (created lazily)
- * const fileStream = splitter.getFileStream(1);
- * ```
  */
 export class FolderStreamSplitter {
   private fileBoundaries: number[]; // Cumulative offsets [0, size1, size1+size2, ...]
   private fileStreams: (Stream.PassThrough | null)[]; // Lazy-created, null after completion
+  private requestedStreams: boolean[]; // Tracks streams returned to callers
   private fileCrcs: number[]; // Running CRC per file
   private currentFileIndex: number;
   private bytesWritten: number;
@@ -55,6 +64,7 @@ export class FolderStreamSplitter {
   private error: Error | null;
   private drainCallbacks: (() => void)[];
   private _needsDrain: boolean;
+  private _drainStream: Stream.PassThrough | null;
 
   constructor(options: FolderStreamSplitterOptions) {
     const fileSizes = options.fileSizes;
@@ -69,22 +79,22 @@ export class FolderStreamSplitter {
     this.error = null;
     this.drainCallbacks = [];
     this._needsDrain = false;
+    this._drainStream = null;
 
-    // Calculate cumulative boundaries
     this.fileBoundaries = [0];
     for (let i = 0; i < fileSizes.length; i++) {
       this.fileBoundaries.push(this.fileBoundaries[this.fileBoundaries.length - 1] + fileSizes[i]);
     }
 
-    // Initialize streams array (lazy creation - all null initially)
     this.fileStreams = [];
+    this.requestedStreams = [];
     this.fileCrcs = [];
     for (let i = 0; i < fileSizes.length; i++) {
       this.fileStreams.push(null);
+      this.requestedStreams.push(false);
       this.fileCrcs.push(0);
     }
 
-    // Set first file boundary
     this.currentFileEnd = this.fileBoundaries[1] || 0;
   }
 
@@ -96,66 +106,57 @@ export class FolderStreamSplitter {
     if (this.finished || this.error) return true;
 
     let offset = 0;
-    let canContinue = true;
 
-    while (offset < chunk.length && this.currentFileIndex < this.fileStreams.length) {
+    while (offset < chunk.length && this.currentFileIndex < this.fileStreams.length && !this.error) {
       const remaining = chunk.length - offset;
       const neededForFile = this.currentFileEnd - this.bytesWritten;
       const toWrite = Math.min(remaining, neededForFile);
 
       if (toWrite > 0) {
         const fileChunk = chunk.slice(offset, offset + toWrite);
-
-        // Ensure stream exists (lazy creation)
         const fileStream = this.ensureFileStream(this.currentFileIndex);
 
-        // Update CRC
         if (this.verifyCrc) {
           this.fileCrcs[this.currentFileIndex] = crc32(fileChunk, this.fileCrcs[this.currentFileIndex]);
         }
 
-        // Write to file stream, track backpressure
         if (!fileStream.write(fileChunk)) {
-          canContinue = false;
           this._needsDrain = true;
-          fileStream.once('drain', () => {
-            this._needsDrain = false;
-            this.notifyDrain();
-          });
+          if (this._drainStream !== fileStream) {
+            this._drainStream = fileStream;
+            fileStream.once('drain', () => {
+              if (this._drainStream === fileStream) this._drainStream = null;
+              this._needsDrain = false;
+              this.notifyDrain();
+            });
+          }
         }
       }
 
       this.bytesWritten += toWrite;
       offset += toWrite;
 
-      // Check if current file is complete
       if (this.bytesWritten >= this.currentFileEnd) {
         this.finishCurrentFile();
       }
     }
 
-    return canContinue;
+    return !this._needsDrain;
   }
 
-  /**
-   * Ensure stream exists for file index (lazy creation)
-   */
   private ensureFileStream(fileIndex: number): Stream.PassThrough {
     let stream = this.fileStreams[fileIndex];
     if (!stream) {
       stream = new PassThrough();
+      attachSafeDestroy(stream);
       this.fileStreams[fileIndex] = stream;
     }
     return stream;
   }
 
-  /**
-   * Complete current file and move to next
-   */
   private finishCurrentFile(): void {
     const fileStream = this.fileStreams[this.currentFileIndex];
 
-    // Verify CRC if enabled
     if (this.verifyCrc) {
       const expectedCrc = this.expectedCrcs[this.currentFileIndex];
       if (expectedCrc !== undefined && this.fileCrcs[this.currentFileIndex] !== expectedCrc) {
@@ -165,15 +166,17 @@ export class FolderStreamSplitter {
       }
     }
 
-    // End this file's stream
     if (fileStream) {
       fileStream.end();
+      if (this._drainStream === fileStream) {
+        this._drainStream = null;
+        this._needsDrain = false;
+        this.notifyDrain();
+      }
     }
 
-    // Release reference for GC
     this.fileStreams[this.currentFileIndex] = null;
 
-    // Move to next file
     this.currentFileIndex++;
     if (this.currentFileIndex < this.fileBoundaries.length - 1) {
       this.currentFileEnd = this.fileBoundaries[this.currentFileIndex + 1];
@@ -186,8 +189,10 @@ export class FolderStreamSplitter {
   end(): void {
     if (this.finished) return;
     this.finished = true;
+    this.drainCallbacks = [];
+    this._drainStream = null;
+    this._needsDrain = false;
 
-    // End any remaining streams
     for (let i = this.currentFileIndex; i < this.fileStreams.length; i++) {
       const stream = this.fileStreams[i];
       if (stream) {
@@ -198,17 +203,26 @@ export class FolderStreamSplitter {
   }
 
   /**
-   * Emit error to all pending file streams
+   * Fail the folder and report error to all requested pending streams
    */
+  fail(err: Error): void {
+    this.emitError(err);
+  }
+
   private emitError(err: Error): void {
+    if (this.error) return;
     this.error = err;
+    this.finished = true;
+    this.drainCallbacks = [];
+    this._drainStream = null;
+    this._needsDrain = false;
+
     for (let i = this.currentFileIndex; i < this.fileStreams.length; i++) {
       const stream = this.fileStreams[i];
-      if (stream) {
-        stream.emit('error', err);
-        stream.end();
-      }
       this.fileStreams[i] = null;
+      if (stream && this.requestedStreams[i]) {
+        destroyStream(stream, err);
+      }
     }
   }
 
@@ -221,11 +235,21 @@ export class FolderStreamSplitter {
       throw new Error(`Invalid file index: ${fileIndex}`);
     }
 
-    // Check if file already completed
+    if (this.error) {
+      const err = this.error;
+      const errStream = new PassThrough();
+      attachSafeDestroy(errStream);
+      defer(() => {
+        destroyStream(errStream, err);
+      });
+      return errStream;
+    }
+
     if (fileIndex < this.currentFileIndex) {
       throw new Error(`File ${fileIndex} already completed - streams must be accessed in order`);
     }
 
+    this.requestedStreams[fileIndex] = true;
     return this.ensureFileStream(fileIndex);
   }
 
@@ -240,9 +264,6 @@ export class FolderStreamSplitter {
     }
   }
 
-  /**
-   * Notify all drain callbacks
-   */
   private notifyDrain(): void {
     const callbacks = this.drainCallbacks;
     this.drainCallbacks = [];

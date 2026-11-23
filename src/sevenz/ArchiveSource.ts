@@ -58,7 +58,9 @@ export class BufferSource implements ArchiveSource {
   }
 
   read(position: number, length: number): BufferLike {
-    return this.buffer.slice(position, position + length);
+    const start = Math.max(0, Math.min(position, this.buffer.length));
+    const end = Math.min(start + Math.max(0, length), this.buffer.length);
+    return this.buffer.slice(start, end);
   }
 
   getSize(): number {

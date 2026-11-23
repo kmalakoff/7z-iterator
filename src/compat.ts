@@ -1,9 +1,4 @@
-/**
- * Compatibility Layer for Node.js 0.8+
- * Local to this package - contains only needed functions.
- */
-import os from 'os';
+// Compatibility layer for Node.js 0.8+
 
-export function tmpdir(): string {
-  return typeof os.tmpdir === 'function' ? os.tmpdir() : require('os-shim').tmpdir();
-}
+// Yield to I/O: setImmediate (Node 0.10+) or setTimeout fallback (Node 0.8)
+export const defer: (fn: () => void) => void = typeof setImmediate === 'function' ? setImmediate : (fn) => setTimeout(fn, 0);

@@ -7,7 +7,7 @@
 
 import type { CallFn } from 'call-once-fn';
 import once from 'call-once-fn';
-import { type FileAttributes, FileEntry, type Lock, type NoParamCallback, waitForAccess } from 'extract-base-iterator';
+import { destroyStream, type FileAttributes, FileEntry, type Lock, type NoParamCallback, waitForAccess } from 'extract-base-iterator';
 import fs from 'graceful-fs';
 import oo from 'on-one';
 import type { ExtractOptions } from './types.ts';
@@ -65,24 +65,42 @@ export default class SevenZipFileEntry extends FileEntry {
 
     try {
       const writeStream = fs.createWriteStream(fullPath);
+      let sourceError: Error | null = null;
+      let writeStreamOpened = false;
+      let writeStreamClosed = false;
+
+      writeStream.once('open', () => {
+        writeStreamOpened = true;
+      });
+      writeStream.once('close', () => {
+        writeStreamClosed = true;
+      });
 
       // Listen for errors on source stream (errors don't propagate through pipe)
       stream.on('error', (streamErr: Error) => {
-        // Destroy the write stream on source error.
-        // On Node 0.8, destroy() emits 'close' before 'error'. Since on-one is listening
-        // for ['error', 'close', 'finish'], it catches 'close' first, calls our callback,
-        // and removes ALL listeners - including the 'error' listener. The subsequent EBADF
-        // error then fires with no handler, causing an uncaught exception.
-        // Adding a no-op error handler ensures there's always a listener for any error.
-        const ws = writeStream as fs.WriteStream & { destroy?: () => void };
+        sourceError = streamErr;
+        // Suppress late EBADF on Node 0.8 after destroying an active WriteStream
         writeStream.on('error', () => {});
-        if (typeof ws.destroy === 'function') ws.destroy();
-        cb(streamErr);
+        if (writeStreamClosed) {
+          cb(streamErr);
+        } else {
+          writeStream.once('close', () => cb(streamErr));
+          destroyStream(writeStream);
+          // Node 0.10-0.12 can leave a pending open unclosed after destroy().
+          const ws = writeStream as fs.WriteStream & { close?: () => void; closed?: boolean; fd?: number | null };
+          if (!writeStreamOpened && !writeStreamClosed && typeof ws.close === 'function') {
+            writeStream.once('open', () => {
+              if (!writeStreamClosed && !ws.closed && ws.fd !== null && typeof ws.close === 'function') ws.close();
+            });
+          }
+        }
       });
 
       // Pipe and listen for write stream completion/errors
       stream.pipe(writeStream);
-      oo(writeStream, ['error', 'close', 'finish'], cb as unknown as CallFn);
+      oo(writeStream, ['error', 'close', 'finish'], (err?: Error | null) => {
+        if (!sourceError) cb(err);
+      });
     } catch (pipeErr) {
       cb(pipeErr as Error);
     }
@@ -91,12 +109,7 @@ export default class SevenZipFileEntry extends FileEntry {
   destroy() {
     super.destroy();
     if (this.stream) {
-      // Use destroy() to prevent decompression (our stream has custom destroy that sets destroyed flag)
-      // Fallback to resume() for older Node versions without destroy()
-      const s = this.stream as NodeJS.ReadableStream & { destroy?: () => void };
-      if (typeof s.destroy === 'function') {
-        s.destroy();
-      }
+      destroyStream(this.stream);
       this.stream = null;
     }
     if (this.lock) {
