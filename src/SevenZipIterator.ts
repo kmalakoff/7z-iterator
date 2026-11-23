@@ -3,7 +3,6 @@ import { rmSync } from 'fs-remove-compat';
 import fs from 'graceful-fs';
 import path from 'path';
 import Queue from 'queue-cb';
-import shortHash from 'short-hash';
 import tempSuffix from 'temp-suffix';
 import { tmpdir } from './compat.ts';
 import streamToSource, { type SourceResult } from './lib/streamToSource.ts';
@@ -95,7 +94,7 @@ export default class SevenZipIterator extends BaseIterator<Entry> {
         if (typeof s.destroy === 'function') s.destroy();
       });
 
-      const tempPath = path.join(tmpdir(), '7z-iterator', shortHash(process.cwd()), tempSuffix('tmp.7z'));
+      const tempPath = path.join(tmpdir(), '7z-iterator', tempSuffix('tmp.7z'));
       queue.defer((cb: (err?: Error | null) => void) => {
         streamToSource(source, { tempPath }, (err?: Error | null, result?: SourceResult) => {
           if (this.done || cancelled) return;

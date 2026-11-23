@@ -6,7 +6,7 @@
  * the multi-byte number decoding. This tests the fix for the varint parsing bug.
  *
  * Uses Node.js Windows distribution as a real-world BCJ2 test case.
- * The archive is downloaded and cached in .tmp/cache on first run.
+ * The archive is downloaded and cached in .cache on first run.
  */
 import SevenZipIterator, { type Entry } from '7z-iterator';
 import assert from 'assert';
@@ -16,6 +16,7 @@ import { safeRm } from 'fs-remove-compat';
 import mkdirp from 'mkdirp-classic';
 import path from 'path';
 import { stringEndsWith } from '../lib/compat.ts';
+import { TMP_DIR } from '../lib/constants.ts';
 import { ensureFixture, getFixturePath } from '../lib/download.ts';
 
 // Node.js Windows x64 7z archive - uses LZMA2:26 LZMA:20 BCJ2 codecs
@@ -96,7 +97,7 @@ describe('BCJ2 archives (large varints)', () => {
       // Note: Only node.exe uses BCJ2 compression in this archive
       const filepath = getFixturePath(NODE_7Z_FILENAME);
       const iterator = new SevenZipIterator(filepath);
-      const targetDir = path.join(path.dirname(filepath), 'bcj2-extract-test');
+      const targetDir = path.join(TMP_DIR, 'bcj2-extract-test');
 
       // Clean up before test
       safeRm(targetDir, () => {

@@ -13,10 +13,23 @@ import type Stream from 'stream';
 function createReadableStream(readFn: (stream: Stream.Readable) => void): Stream.Readable {
   const stream = new Readable();
   stream._read = function () {
-    readFn(this);
+    if (!(this as DestroyableReadable).destroyed) readFn(this);
   };
+  // Node 4-7 streams have no destroy(): add one that stops reading and unpipes, so destroying an entry stream (or pump's teardown) stops the reads
+  const s = stream as DestroyableReadable;
+  if (typeof s.destroy !== 'function') {
+    s.destroy = function () {
+      if (this.destroyed) return this;
+      this.destroyed = true;
+      this.unpipe();
+      this.emit('close');
+      return this;
+    };
+  }
   return stream;
 }
+
+type DestroyableReadable = Stream.Readable & { destroyed?: boolean; destroy?: () => DestroyableReadable };
 
 /**
  * Archive source abstraction - allows reading from file descriptor or buffer
@@ -177,6 +190,8 @@ export class FileSource implements ArchiveSource {
 
       fs.read(fd, buffer, 0, toRead, currentOffset, (err, n) => {
         reading = false;
+        // Drop a read that finishes after destroy: pushing after destroy() errors with 'push() after EOF' on readable-stream (Node 0.x) and Node 8
+        if ((s as DestroyableReadable).destroyed) return;
 
         if (err) {
           // Emit error for Node 0.8 compatibility (no destroy method)
